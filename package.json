@@ -1,0 +1,35 @@
+{
+  "name": "zip-phonegap-demo",
+  "version": "0.0.0",
+  "description": "A phonegap app that demonstrates the use of Javascript zip libraries",
+  "private": true,
+  "scripts": {
+    "installbenchmarkjs": "curl http://cdnjs.cloudflare.com/ajax/libs/benchmark/1.0.0/benchmark.js > www/js/3rd/benchmark.js",
+    "installzipjs": "git clone https://github.com/gildas-lormeau/zip.js && mv zip.js/WebContent/ www/js/3rd/zip.js && rm -rf zip.js",
+    "postinstall": "rm -rf www/js/3rd/ ; mkdir -p www/js/3rd/ && npm run installbenchmarkjs && npm run installzipjs",
+    "setupandroid": "phonegap platform add android ; phonegap platform update android",
+    "buildandroid": "phonegap build android",
+    "setupall": "npm run setupandroid",
+    "buildall": "npm run buildandroid",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bguiz/zip-phonegap-demo"
+  },
+  "keywords": [
+    "zip",
+    "phonegap",
+    "cordova",
+    "compression",
+    "performance",
+    "benchmark",
+    "demo"
+  ],
+  "author": "bguiz",
+  "license": "GPLv3",
+  "bugs": {
+    "url": "https://github.com/bguiz/zip-phonegap-demo/issues"
+  },
+  "homepage": "https://github.com/bguiz/zip-phonegap-demo"
+}
