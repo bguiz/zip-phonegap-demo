@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <widget
     id="com.bguiz.zip-phonegap-demo"
-    version="1.0.5"
+    version="1.0.10"
     xmlns="http://www.w3.org/ns/widgets"
     xmlns:gap="http://phonegap.com/ns/1.0">
     <name>zip-phonegap-demo</name>
@@ -85,5 +85,9 @@
         <allow-intent href="itms:*" />
         <allow-intent href="itms-apps:*" />
     </platform>
-    <engine name="android" spec="^4.0.0" />
+    <engine name="android" spec="^4.0.2" />
+
+    <feature name="File">
+        <param name="android-package" value="org.apache.cordova.file.FileUtils" />
+    </feature>
 </widget>

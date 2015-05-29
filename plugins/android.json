@@ -33,10 +33,10 @@
     },
     "installed_plugins": {
         "cordova-plugin-whitelist": {
-            "PACKAGE_NAME": "com.bguiz.phonegapdemo"
+            "PACKAGE_NAME": "com.bguiz.zip_phonegap_demo"
         },
         "org.apache.cordova.file": {
-            "PACKAGE_NAME": "com.bguiz.phonegapdemo"
+            "PACKAGE_NAME": "com.bguiz.zip_phonegap_demo"
         }
     },
     "dependent_plugins": {}
