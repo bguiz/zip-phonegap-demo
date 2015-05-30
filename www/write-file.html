@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8" />
+        <title>Write file Phonegap Demo</title>
+
+        <meta name="format-detection" content="telephone=no" />
+        <meta name="msapplication-tap-highlight" content="no" />
+        <!-- WARNING: for iOS 7, remove the width=device-width and height=device-height attributes. See https://issues.apache.org/jira/browse/CB-4323 -->
+        <meta name="viewport" content="user-scalable=no, initial-scale=1, maximum-scale=1, minimum-scale=1, width=device-width, height=device-height, target-densitydpi=device-dpi" />
+
+        <link rel="stylesheet" type="text/css" href="css/index.css" />
+    </head>
+    <body>
+        <div class="app">
+            <p>Write file Phonegap Demo</p>
+            <div>
+              <ul>
+                <li>
+                  <a href="index.html" alt="">Main</a>
+                </li>
+              </ul>
+              <button id="runbutton">
+                Run
+              </button>
+            </div>
+
+            <div id="out">
+            </div>
+        </div>
+        <script type="text/javascript" src="cordova.js"></script>
+
+        <!-- benchmark.js -->
+        <script type="application/javascript" src="js/3rd/benchmark.js"></script>
+
+        <script>
+          Benchmark.prototype.setup = function setupBenchmark() {
+            //TODO
+          }
+
+          function writeOutMessage(message) {
+            var elem = document.getElementById('out');
+            elem.appendChild(document.createTextNode(message));
+            elem.appendChild(document.createElement('br'));
+          }
+
+          function run() {
+            var suite = new Benchmark.Suite();
+            suite
+              .add('Test write files', {
+                defer: true,
+                fn: function(deferred) {
+                  writeTextToFileTest(deferred, {});
+                },
+              })
+              .on('start', function() {
+                writeOutMessage('Start.');
+              })
+              .on('cycle', function(event) {
+                writeOutMessage(event.target);
+              })
+              .on('complete', function() {
+                writeOutMessage('Finished.');
+              })
+              .run({
+                async: true
+              });
+          }
+
+          var numLines = 1000;
+          var sampleText = new Array(numLines);
+          for (var i = 0; i < numLines; ++i) {
+            sampleText.push(i);
+          }
+          sampleText = sampleText.join('\n');
+
+          function getDataFile(path, options, onGotFile) {
+            options = options || {};
+            window.resolveLocalFileSystemURL(cordova.file.dataDirectory, function(dir) {
+              // console.log("got main dir",dir);
+              dir.getFile(path, options, function(file) {
+                // console.log("got the file", file);
+                onGotFile(undefined, file);
+              });
+            });
+          }
+
+          function writeTextToFileTest(deferred, info) {
+            getDataFile('sample-text-file.txt', {
+              create: true,
+            }, function onGotFile(err, file) {
+              var blob = new Blob([sampleText], { type: 'text/plain' });
+              file.createWriter(function(writer) {
+                writer.write(blob);
+                deferred.resolve();
+              }, function(err) {
+                console.log('Err', err);
+                deferred.resolve();
+              });
+            });
+          }
+
+          function onDeviceReady() {
+            var elem = document.getElementById('runbutton');
+            elem.addEventListener('touchend', function() {
+              run();
+            });
+          }
+
+          document.addEventListener('deviceready', onDeviceReady, false);
+        </script>
+    </body>
+</html>
+
+
+
