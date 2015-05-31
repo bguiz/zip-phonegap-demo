@@ -9,6 +9,8 @@
         <!-- WARNING: for iOS 7, remove the width=device-width and height=device-height attributes. See https://issues.apache.org/jira/browse/CB-4323 -->
         <meta name="viewport" content="user-scalable=no, initial-scale=1, maximum-scale=1, minimum-scale=1, width=device-width, height=device-height, target-densitydpi=device-dpi" />
 
+        <meta http-equiv="Content-Security-Policy" content="default-src *; style-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'">
+
         <link rel="stylesheet" type="text/css" href="css/index.css" />
     </head>
     <body>
@@ -50,7 +52,12 @@
               .add('Test write files', {
                 defer: true,
                 fn: function(deferred) {
-                  writeTextToFileTest(deferred, {});
+                  try {
+                    writeTextToFileTest(deferred, {});
+                  }
+                  catch (err) {
+                    writeOutMessage('Err: '+ err + ' ' + err.stack);
+                  }
                 },
               })
               .on('start', function() {
@@ -74,29 +81,78 @@
           }
           sampleText = sampleText.join('\n');
 
-          function getDataFile(path, options, onGotFile) {
+          function getDataFile(path, options, onGotFileEntry) {
             options = options || {};
-            window.resolveLocalFileSystemURL(cordova.file.dataDirectory, function(dir) {
-              // console.log("got main dir",dir);
-              dir.getFile(path, options, function(file) {
-                // console.log("got the file", file);
-                onGotFile(undefined, file);
+            window.requestFileSystem(LocalFileSystem.PERSISTENT, 0, function onGotFileSytem(fileSys) {
+              console.log("got main fileSys", fileSys);
+              fileSys.root.getFile(path, options, function(fileEntry) {
+                console.log("got the fileEntry", fileEntry);
+                onGotFileEntry(undefined, fileEntry);
+              }, function onFail(err) {
+                console.log('Err', err);
+                throw err;
               });
+            }, function onFail(err) {
+              console.log('Err', err);
+              throw err;
             });
           }
 
           function writeTextToFileTest(deferred, info) {
             getDataFile('sample-text-file.txt', {
               create: true,
-            }, function onGotFile(err, file) {
-              var blob = new Blob([sampleText], { type: 'text/plain' });
-              file.createWriter(function(writer) {
+              exclusive: false,
+            }, function onGotFileEntry(err, fileEntry) {
+              if (!!err) {
+                throw err;
+              }
+              fileEntry.createWriter(function(writer) {
+                var blob = new Blob([sampleText], { type: 'text/plain' });
+                writer.onwriteend = onWrote;
                 writer.write(blob);
-                deferred.resolve();
-              }, function(err) {
+
+                function onWrote(evt) {
+                  if (!!writer.error) {
+                    throw writer.error;
+                  }
+                  readFileTest(deferred, info);
+                }
+              }, function onFail(err) {
                 console.log('Err', err);
-                deferred.resolve();
+                throw err;
               });
+            }, function onFail(err) {
+              console.log('Err', err);
+              throw err;
+            });
+          }
+
+          function readFileTest(deferred, info) {
+            getDataFile('sample-text-file.txt', {
+              create: false,
+              exclusive: false,
+            }, function onGotFileEntry(err, fileEntry) {
+              if (!!err) {
+                throw err;
+              }
+              fileEntry.file(function onGotFile(file) {
+                var reader = new FileReader();
+                reader.onloadend = onRead;
+                reader.readAsText(file);
+              }, function onFail(err) {
+                console.log('Err', err);
+                throw err;
+              });
+
+              function onRead(evt) {
+                var length = evt.target.result.length;
+                console.log('File length', length);
+                deferred.resolve();
+              }
+
+            }, function onFail(err) {
+              console.log('Err', err);
+              throw err;
             });
           }
 
