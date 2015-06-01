@@ -8,12 +8,14 @@
         <meta name="msapplication-tap-highlight" content="no" />
         <!-- WARNING: for iOS 7, remove the width=device-width and height=device-height attributes. See https://issues.apache.org/jira/browse/CB-4323 -->
         <meta name="viewport" content="user-scalable=no, initial-scale=1, maximum-scale=1, minimum-scale=1, width=device-width, height=device-height, target-densitydpi=device-dpi" />
+
+       <!--  <meta http-equiv="Content-Security-Policy" content="default-src *; style-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'"> -->
+
         <link rel="stylesheet" type="text/css" href="css/index.css" />
     </head>
     <body>
         <div class="app">
             <p>Zip library comparison - large unzip</p>
-
 
             <div>
               <ul>
@@ -44,87 +46,42 @@
         <!-- benchmark.js -->
         <script type="application/javascript" src="js/3rd/benchmark.js"></script>
 
+        <!-- internal -->
+        <script type="application/javascript" src="js/bguiz-phonegap-zip-fs.js"></script>
+
         <!-- set up -->
         <script>
             Benchmark.prototype.setup = function() {
               var js_zip_dir = 'js/3rd/zip.js/';
 
               var sample_zip_url =
-                'https://github.com/bguiz/javascript-zip-performance-compare/raw/develop/files/large-complex-zip-file.zip';
-                // 'http://qa.cdn.mathletics.com/html/Brendan/large-complex-zip-file.zip';
-
-              var MAX_CONCURRENT_INFLATE = 512;
-              var MAX_CONCURRENT_SIZE_COST = 2 * 1024 * 1024;
+                'http://github.com/bguiz/javascript-zip-performance-compare/raw/develop/files/large-complex-zip-file.zip';
 
               function doJsZipTest(deferred, info) {
-                zip.useWebWorkers = info.useWebWorkers;
-                zip.workerScripts = info.workerScripts;
+                var aggregateDataSize = 0;
+                extractZip({
+                  useWebWorkers: info.useWebWorkers,
+                  workerScripts: info.workerScripts,
+                  readerType: 'HttpReader',
+                  readerUrl: sample_zip_url,
+                  writerType: 'Data64URIWriter',
+                }, function onDone(err, allDone, file) {
+                  if (!!err) {
+                    throw err;
+                  }
+                  if (!allDone) {
+                    // Signalled that a single file in the zip file has been inflated, and here it is
 
-                zip.createReader(new zip.HttpReader(sample_zip_url), function(zipReader) {
-                  zipReader.getEntries(function(entries) {
-                    console.log(info.name, 'entries.length:', entries.length);
-                    var resultCount = entries.length;
-                    var concurrentEntries = 0;
-                    var concurrentCost = 0;
-                    var entryIndex = 0;
-                    var aggregateDataSize = 0;
-
-                    function doNextEntry() {
-                      if (entryIndex >= entries.length) {
-                        return;
-                      }
-                      var entry = entries[entryIndex];
-                      var estimatedSizeCost =
-                        entry.uncompressedSize * (entry.uncompressedSize / entry.compressedSize);
-                      ++entryIndex;
-                      ++concurrentEntries;
-                      concurrentCost += estimatedSizeCost;
-
-                      var writer = new zip.Data64URIWriter(zip.getMimeType(entry.fileName));
-                      entry.getData(writer, function(data) {
-                        // Here we would do something with `data`,
-                        // but for the purposes of benchmarking,
-                        // we are simply going to tally its size
-                        aggregateDataSize += data.length;
-                        --concurrentEntries;
-                        --resultCount;
-                        concurrentCost -= estimatedSizeCost;
-                        if (resultCount < 1) {
-                          console.log(info.name, 'aggregateDataSize:', aggregateDataSize);
-                          deferred.resolve();
-                        }
-                        else {
-                          doRateLimitedNextEntries();
-                        }
-                      });
-                    }
-
-                    // In V8, if we spawn too many CPU intensive callback functions
-                    // at once, it is smart enough to rate limit it automatically
-                    // This, however, is not the case for other Javascript VMs,
-                    // so we need to implement by hand a means to
-                    // limit the max number of concurrent operations
-                    function doRateLimitedNextEntries() {
-                      while (concurrentEntries < 1 ||
-                             (concurrentEntries <= MAX_CONCURRENT_INFLATE &&
-                              concurrentCost <= MAX_CONCURRENT_SIZE_COST)) {
-                        doNextEntry();
-                      }
-                    }
-
-                    doRateLimitedNextEntries();
-                  });
-                }, function(err) {
-                  console.error(err, err.stack);
-
-                  var elem = document.getElementById('out');
-                  elem.appendChild(document.createTextNode('Error:'));
-                  elem.appendChild(document.createTextNode(err));
-                  elem.appendChild(document.createElement('br'));
-                  elem.appendChild(document.createTextNode(err.stack));
-                  elem.appendChild(document.createElement('br'));
-
-                  throw err;
+                    // Here we would do something with `file`,
+                    // but for the purposes of benchmarking,
+                    // we are simply going to tally its size
+                    aggregateDataSize += file.contents.length;
+                  }
+                  else {
+                    // Signalled that all files in the zip file have been inflated
+                    console.log(info.name, 'aggregateDataSize:', aggregateDataSize);
+                    deferred.resolve();
+                  }
                 });
               }
             };
@@ -249,9 +206,7 @@
                   }
                 })
                 .on('start', function() {
-                  var elem = document.getElementById('out');
-                  elem.appendChild(document.createTextNode('Start.'));
-                  elem.appendChild(document.createElement('br'));
+                  writeOutMessage('Start.');
                 })
                 .on('cycle', function(event) {
                   var elem = document.getElementById('out');
@@ -259,9 +214,7 @@
                   elem.appendChild(document.createElement('br'));
                 })
                 .on('complete', function() {
-                  var elem = document.getElementById('out');
-                  elem.appendChild(document.createTextNode('Finished.'));
-                  elem.appendChild(document.createElement('br'));
+                  writeOutMessage('Finished.');
                 })
                 .run({
                   async: true

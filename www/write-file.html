@@ -35,6 +35,9 @@
         <!-- benchmark.js -->
         <script type="application/javascript" src="js/3rd/benchmark.js"></script>
 
+        <!-- internal -->
+        <script type="application/javascript" src="js/bguiz-phonegap-zip-fs.js"></script>
+
         <script>
           Benchmark.prototype.setup = function setupBenchmark() {
             //TODO
@@ -81,78 +84,43 @@
           }
           sampleText = sampleText.join('\n');
 
-          function getDataFile(path, options, onGotFileEntry) {
-            options = options || {};
-            window.requestFileSystem(LocalFileSystem.PERSISTENT, 0, function onGotFileSytem(fileSys) {
-              console.log("got main fileSys", fileSys);
-              fileSys.root.getFile(path, options, function(fileEntry) {
-                console.log("got the fileEntry", fileEntry);
-                onGotFileEntry(undefined, fileEntry);
-              }, function onFail(err) {
-                console.log('Err', err);
-                throw err;
-              });
-            }, function onFail(err) {
-              console.log('Err', err);
-              throw err;
+          function onFail(err) {
+            console.log(err);
+            throw err;
+          }
+
+          function writeTextToFileTest(deferred) {
+            writeFile({
+              name: 'sample-text-file.txt',
+              flags: {
+                create: true,
+                exclusive: false,
+              },
+              mimeType: 'text/plain',
+              content: sampleText,
+            }, function onWriteFileDone(err, evt) {
+              if (!!err) {
+                onFail(err);
+              }
+              readFileTest(deferred);
             });
           }
 
-          function writeTextToFileTest(deferred, info) {
-            getDataFile('sample-text-file.txt', {
-              create: true,
-              exclusive: false,
-            }, function onGotFileEntry(err, fileEntry) {
+          function readFileTest(deferred) {
+            readFile({
+              name: 'sample-text-file.txt',
+              flags: {
+                create: true,
+                exclusive: false,
+              },
+              method: 'readAsText',
+            }, function onReadFileDone(err, evt) {
               if (!!err) {
-                throw err;
+                onFail(err);
               }
-              fileEntry.createWriter(function(writer) {
-                var blob = new Blob([sampleText], { type: 'text/plain' });
-                writer.onwriteend = onWrote;
-                writer.write(blob);
-
-                function onWrote(evt) {
-                  if (!!writer.error) {
-                    throw writer.error;
-                  }
-                  readFileTest(deferred, info);
-                }
-              }, function onFail(err) {
-                console.log('Err', err);
-                throw err;
-              });
-            }, function onFail(err) {
-              console.log('Err', err);
-              throw err;
-            });
-          }
-
-          function readFileTest(deferred, info) {
-            getDataFile('sample-text-file.txt', {
-              create: false,
-              exclusive: false,
-            }, function onGotFileEntry(err, fileEntry) {
-              if (!!err) {
-                throw err;
-              }
-              fileEntry.file(function onGotFile(file) {
-                var reader = new FileReader();
-                reader.onloadend = onRead;
-                reader.readAsText(file);
-              }, function onFail(err) {
-                console.log('Err', err);
-                throw err;
-              });
-
-              function onRead(evt) {
-                var length = evt.target.result.length;
-                console.log('File length', length);
-                deferred.resolve();
-              }
-
-            }, function onFail(err) {
-              console.log('Err', err);
-              throw err;
+              var length = evt.target.result.length;
+              console.log('File length', length);
+              deferred.resolve();
             });
           }
 
