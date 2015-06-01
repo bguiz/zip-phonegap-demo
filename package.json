@@ -9,6 +9,8 @@
     "postinstall": "rm -rf www/js/3rd/ ; mkdir -p www/js/3rd/ && npm run installbenchmarkjs && npm run installzipjs",
     "setupandroid": "phonegap platform add android ; phonegap platform update android",
     "buildandroid": "phonegap build android",
+    "installandroid": "adb install -r platforms/android/build/outputs/apk/android-debug.apk",
+    "bumpandroid": "npm run buildandroid && npm run installandroid",
     "setupall": "npm run setupandroid",
     "buildall": "npm run buildandroid",
     "test": "echo \"Error: no test specified\" && exit 1"
