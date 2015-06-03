@@ -6,9 +6,9 @@
   "scripts": {
     "installbenchmarkjs": "curl http://cdnjs.cloudflare.com/ajax/libs/benchmark/1.0.0/benchmark.js > www/js/3rd/benchmark.js",
     "installzipjs": "git clone https://github.com/gildas-lormeau/zip.js && mv zip.js/WebContent/ www/js/3rd/zip.js && rm -rf zip.js",
-    "postinstall": "rm -rf www/js/3rd/ ; mkdir -p www/js/3rd/ && npm run installbenchmarkjs && npm run installzipjs",
+    "postinstall": "node ./node_modules/rimraf/bin.js www/js/3rd/ ; mkdir www/js/3rd/ && npm run installbenchmarkjs && npm run installzipjs",
     "setupandroid": "phonegap platform add android ; phonegap platform update android",
-    "setupudevandroid": "sudo cp devops/android.udev.rules /etc/udev/rules.d/51-android.rules && sudo chmod a+r /etc/udev/rules.d/51-android.rules",
+    "setupudevandroid": "sudo cp devops/android.udev.rules /etc/udev/rules.d/51-android.rules && sudo chmod a+r /etc/udev/rules.d/51-android.rules && sudo service udev restart",
     "buildandroid": "phonegap build android",
     "installandroid": "adb install -r platforms/android/build/outputs/apk/android-debug.apk",
     "bumpandroid": "npm run buildandroid && npm run installandroid",
@@ -34,5 +34,8 @@
   "bugs": {
     "url": "https://github.com/bguiz/zip-phonegap-demo/issues"
   },
-  "homepage": "https://github.com/bguiz/zip-phonegap-demo"
+  "homepage": "https://github.com/bguiz/zip-phonegap-demo",
+  "devDependencies": {
+    "rimraf": "^2.3.4"
+  }
 }
