@@ -84,11 +84,6 @@
           }
           sampleText = sampleText.join('\n');
 
-          function onFail(err) {
-            console.log(err);
-            throw err;
-          }
-
           function writeTextToFileTest(deferred) {
             writeFile({
               name: 'sample-text-file.txt',
@@ -97,7 +92,7 @@
                 exclusive: false,
               },
               mimeType: 'text/plain',
-              content: sampleText,
+              contents: sampleText,
             }, function onWriteFileDone(err, evt) {
               if (!!err) {
                 onFail(err);
