@@ -55,8 +55,9 @@ function extractZipToFolder(options, onDone) {
         flags: {
           create: true,
           exclusive: false,
-          mkdirp: true,
+          mkdirp: false,
         },
+        preemptiveTreeMkdir: true,
         blob: fileInfo.contents,
       };
       ++numFiles;
@@ -93,56 +94,145 @@ function extractZip(options, onDone) {
       entries = entries.filter(function(entry) {
         return !entry.directory;
       });
-      console.log(options.name, 'entries.length:', entries.length);
-      var resultCount = entries.length;
-      var concurrentEntries = 0;
-      var concurrentCost = 0;
-      var entryIndex = 0;
+      if (!!options.preemptiveTreeMkdir) {
+        // Preemptively construct all of the required directories
+        // to avoid having to do this repetitively as each file is written
+        var tree = {};
+        entries.map(function dirOfFile(entry) {
+          return entry.filename.replace( /\/[^\/]+$/ , '');
+        }).forEach(function addToTree(dir) {
+          var node = tree;
+          var segments = dir.split('/');
+          for (var i = 0; i < segments.length; ++i) {
+            var segment = segments[i];
+            if (!node[segment]) {
+              node[segment] = {};
+            }
+            node = node[segment];
+          }
+        });
 
-      function doNextEntry() {
-        if (entryIndex >= entries.length) {
-          return;
-        }
-        var entry = entries[entryIndex];
-        var estimatedSizeCost =
-          entry.uncompressedSize * (entry.uncompressedSize / entry.compressedSize);
-        ++entryIndex;
-        ++concurrentEntries;
-        concurrentCost += estimatedSizeCost;
+        // Now recur through the nodes in the tree, breadth-first search,
+        // and mkdir each node in turn
+        // This ensures that the minimum number of mkdirs is needed
+        window.requestFileSystem(LocalFileSystem.PERSISTENT, 0, function onGotFileSytem(fileSys) {
+          var errors = [];
 
-        var writer = getZipWriter(options, entry);
-        entry.getData(writer, function onGotDataForZipEntry(data) {
-          onDone(undefined, false, {
-            fileEntry: entry,
-            contents: data,
+          mkdirTree('', tree, onCompleteRootTree() {
+            console.log('mkdir tree completed, errors:', errors);
+            inflateEntries();
           });
 
-          --concurrentEntries;
-          --resultCount;
-          concurrentCost -= estimatedSizeCost;
-          if (resultCount < 1) {
-            onDone(undefined, true);
+          function mkdirTree(path, node, onCompleteTree) {
+            var subDirs = Object.keys(node);
+            var numSubdirs = subDirs.length;
+
+            if (numSubdirs === 0) {
+              // Termination condition
+              onCompleteTree();
+            }
+
+            var createdSubdirs = 0;
+            var erroredSubdirs = 0;
+            var completedSubTrees = 0;
+            for (var i = 0; i < numSubdirs; ++i) {
+              var subDir = subDirs[i];
+              mkdir(subDir, function onCreateDirSuccess(dirEntry) {
+                // Recursion
+                var subPath = (path.length > 0) ? path+'/'+subDir : subDir;
+                var subNode = node[subDir];
+                mkdirTree(subPath, subNode, function onCompleteSubTree() {
+                  ++completedSubTrees;
+                  checkCompletedSubdirs();
+                });
+                ++createdSubdirs;
+                // checkCompletedSubdirs();
+              }, function onCreateDirFailure(err) {
+                ++erroredSubdirs;
+                errors.push({
+                  {
+                    err: err,
+
+                  }
+                });
+                checkCompletedSubdirs();
+              });
+            }
+
+            function checkCompletedSubdirs() {
+              if (createdSubdirs + erroredSubdirs >= numSubdirs &&
+                completedSubTrees >= createdSubdirs) {
+                // Exit this level of recursion
+                onCompleteTree();
+              }
+            }
           }
-          else {
-            doRateLimitedNextEntries();
+
+          function mkdir(dir, onCreateDirSuccess, onCreateDirFailure) {
+            // console.log('mkdir', dir);
+            fileSys.getDirectory(dir, {
+              create : true,
+              exclusive : false,
+            }, onCreateDirSuccess, onCreateDirFailure);
           }
         });
       }
-
-      // In V8, if we spawn too many CPU intensive callback functions
-      // at once, it is smart enough to rate limit it automatically
-      // This, however, is not the case for other Javascript VMs,
-      // so we need to implement by hand a means to
-      // limit the max number of concurrent operations
-      function doRateLimitedNextEntries() {
-        while (concurrentEntries < 1 ||
-               (concurrentEntries <= MAX_CONCURRENT_INFLATE &&
-                concurrentCost <= MAX_CONCURRENT_SIZE_COST)) {
-          doNextEntry();
-        }
+      else {
+        inflateEntries();
       }
 
-      doRateLimitedNextEntries();
+      function inflateEntries() {
+        console.log(options.name, 'entries.length:', entries.length);
+        var resultCount = entries.length;
+        var concurrentEntries = 0;
+        var concurrentCost = 0;
+        var entryIndex = 0;
+
+        function doNextEntry() {
+          if (entryIndex >= entries.length) {
+            return;
+          }
+          var entry = entries[entryIndex];
+          var estimatedSizeCost =
+            entry.uncompressedSize * (entry.uncompressedSize / entry.compressedSize);
+          ++entryIndex;
+          ++concurrentEntries;
+          concurrentCost += estimatedSizeCost;
+
+          var writer = getZipWriter(options, entry);
+          entry.getData(writer, function onGotDataForZipEntry(data) {
+            onDone(undefined, false, {
+              fileEntry: entry,
+              contents: data,
+            });
+
+            --concurrentEntries;
+            --resultCount;
+            concurrentCost -= estimatedSizeCost;
+            if (resultCount < 1) {
+              onDone(undefined, true);
+            }
+            else {
+              doRateLimitedNextEntries();
+            }
+          });
+        }
+
+        // In V8, if we spawn too many CPU intensive callback functions
+        // at once, it is smart enough to rate limit it automatically
+        // This, however, is not the case for other Javascript VMs,
+        // so we need to implement by hand a means to
+        // limit the max number of concurrent operations
+        function doRateLimitedNextEntries() {
+          while (concurrentEntries < 1 ||
+                 (concurrentEntries <= MAX_CONCURRENT_INFLATE &&
+                  concurrentCost <= MAX_CONCURRENT_SIZE_COST)) {
+            doNextEntry();
+          }
+        }
+
+        doRateLimitedNextEntries();
+      }
     });
   }, function onZipReaderCreateFailed(err) {
     console.error(err, err.stack);
@@ -239,7 +329,7 @@ function mkdirp(fsRoot, path, onDone) {
       fsRoot.getDirectory(dir, {
         create : true,
         exclusive : false,
-      },  onCreateDirSuccess, onCreateDirFailure);
+      }, onCreateDirSuccess, onCreateDirFailure);
     }
 
     function mkdirSub() {
