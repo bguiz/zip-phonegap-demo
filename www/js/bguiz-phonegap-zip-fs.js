@@ -62,13 +62,16 @@ function extractZipToFolder(options, onDone) {
         blob: fileInfo.contents,
       };
       ++numFiles;
-      writeFile(fileOptions, function onWriteFileDone(err, evt) {
+      writeFile(fileOptions, function onWriteFileDone(err, evt, fileEntry) {
         if (!!err) {
           ++numFilesErrored;
           onFail(err);
         }
         ++numFilesWritten;
-        console.log('File written:', fileInfo, 'numFilesWritten:', numFilesWritten);
+        console.log('File written:', fileInfo,
+          'numFilesWritten:', numFilesWritten,
+          'evt.target.localURL:', evt.target.localURL,
+          'fileEntry.toURL()', fileEntry.toURL());
         checkComplete();
       });
     }
@@ -222,7 +225,7 @@ function writeFile(options, onDone) {
       writer.write(blob);
 
       function onWrote(evt) {
-        onDone(writer.error, evt);
+        onDone(writer.error, evt, fileEntry);
       }
     }, onFail);
   }, onFail);
