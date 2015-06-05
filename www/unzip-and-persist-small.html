@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8" />
+        <title>Unzip and Persist (small) to File System Phonegap Demo</title>
+
+        <meta name="format-detection" content="telephone=no" />
+        <meta name="msapplication-tap-highlight" content="no" />
+        <!-- WARNING: for iOS 7, remove the width=device-width and height=device-height attributes. See https://issues.apache.org/jira/browse/CB-4323 -->
+        <meta name="viewport" content="user-scalable=no, initial-scale=1, maximum-scale=1, minimum-scale=1, width=device-width, height=device-height, target-densitydpi=device-dpi" />
+
+        <meta http-equiv="Content-Security-Policy" content="default-src *; style-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'">
+
+        <link rel="stylesheet" type="text/css" href="css/index.css" />
+    </head>
+    <body>
+        <div class="app">
+            <p>Unzip and Persist (small) to File System Phonegap Demo</p>
+            <div>
+              <ul>
+                <li>
+                  <a href="index.html" alt="">Main</a>
+                </li>
+              </ul>
+              <button id="runbutton">
+                Run
+              </button>
+            </div>
+
+            <div id="out">
+            </div>
+        </div>
+        <script type="text/javascript" src="cordova.js"></script>
+
+        <!-- benchmark.js -->
+        <script type="application/javascript" src="js/3rd/benchmark.js"></script>
+
+        <!-- zip.js -->
+        <script type="application/javascript" src="js/3rd/zip.js/zip.js"></script>
+        <script type="application/javascript" src="js/3rd/zip.js/z-worker.js"></script>
+        <script type="application/javascript" src="js/3rd/zip.js/inflate.js"></script>
+        <script type="application/javascript" src="js/3rd/zip.js/deflate.js"></script>
+        <script type="application/javascript" src="js/3rd/zip.js/zip-fs.js"></script>
+        <script type="application/javascript" src="js/3rd/zip.js/zip-ext.js"></script>
+        <script type="application/javascript" src="js/3rd/zip.js/mime-types.js"></script>
+
+        <!-- internal -->
+        <script type="application/javascript" src="js/bguiz-phonegap-zip-fs.js"></script>
+
+        <script>
+          Benchmark.prototype.setup = function setupBenchmark() {
+            //TODO
+          }
+
+          var js_zip_dir = 'js/3rd/zip.js/';
+          var sample_zip_url =
+            // 'http://github.com/bguiz/javascript-zip-performance-compare/raw/develop/files/large-complex-zip-file.zip';
+            'files/small-zip-file.zip';
+
+          function testExtractZipToFolder(deferred) {
+            var options = {
+              useWebWorkers: false,
+              workerScripts: {
+                deflater: [
+                  js_zip_dir+'deflate.js'
+                ],
+                inflater: [
+                  js_zip_dir+'inflate.js'
+                ],
+              },
+              readerUrl: sample_zip_url,
+              // extractFolder: 'unzipped/large-complex-zip-file',
+              extractFolder: 'unzipped/small-zip-file',
+            };
+            extractZipToFolder(options, function onExtractZipToFolderDone(err, numFiles) {
+              if (!!err) {
+                onFail(err);
+              }
+              console.log('Extracted files:', numFiles, options);
+              deferred.resolve();
+            });
+          }
+
+          function run() {
+            var suite = new Benchmark.Suite();
+            suite
+              .add('Test write files', {
+                defer: true,
+                fn: function(deferred) {
+                  try {
+                    testExtractZipToFolder(deferred);
+                  }
+                  catch (err) {
+                    writeOutMessage('Err: '+ err + ' ' + err.stack);
+                  }
+                },
+              })
+              .on('start', function() {
+                writeOutMessage('Start.');
+              })
+              .on('cycle', function(event) {
+                writeOutMessage(event.target);
+              })
+              .on('complete', function() {
+                writeOutMessage('Finished.');
+              })
+              .run({
+                async: true
+              });
+          }
+
+          function onDeviceReady() {
+            var elem = document.getElementById('runbutton');
+            elem.addEventListener('touchend', function() {
+              run();
+            });
+          }
+
+          document.addEventListener('deviceready', onDeviceReady, false);
+        </script>
+    </body>
+</html>
+
+
+

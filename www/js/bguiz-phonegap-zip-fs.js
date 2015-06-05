@@ -41,6 +41,8 @@ function extractZipToFolder(options, onDone) {
     readerType: 'HttpReader',
     readerUrl: options.readerUrl,
     writerType: 'BlobWriter',
+    preemptiveTreeMkdir: true,
+    extractFolder: options.extractFolder,
   };
   extractZip(zipOptions, function onExtractZipDone(err, allDone, fileInfo) {
     if (!!err) {
@@ -55,7 +57,7 @@ function extractZipToFolder(options, onDone) {
         flags: {
           create: true,
           exclusive: false,
-          mkdirp: true,
+          mkdirp: false,
         },
         blob: fileInfo.contents,
       };
@@ -77,10 +79,68 @@ function extractZipToFolder(options, onDone) {
     }
     function checkComplete() {
       if (allInflated && numFilesWritten + numFilesErrored >= numFiles) {
-        onDone(undefined, numFiles);
+        var error;
+        if (numFilesErrored > 0) {
+          error = 'Number of files errored: '+numFilesErrored;
+        }
+        onDone(error, numFilesWritten);
       }
     }
   });
+}
+
+function zipInflateEntries(options, entries, onInflate) {
+  console.log(options.name, 'entries.length:', entries.length);
+  var resultCount = entries.length;
+  var concurrentEntries = 0;
+  var concurrentCost = 0;
+  var entryIndex = 0;
+
+  function doNextEntry() {
+    if (entryIndex >= entries.length) {
+      return;
+    }
+    var entry = entries[entryIndex];
+    var estimatedSizeCost =
+      entry.uncompressedSize * (entry.uncompressedSize / entry.compressedSize);
+    ++entryIndex;
+    ++concurrentEntries;
+    concurrentCost += estimatedSizeCost;
+
+    var writer = getZipWriter(options, entry);
+    entry.getData(writer, function onGotDataForZipEntry(data) {
+      onInflate(undefined, false, {
+        fileEntry: entry,
+        contents: data,
+      });
+
+      --concurrentEntries;
+      --resultCount;
+      concurrentCost -= estimatedSizeCost;
+      if (resultCount < 1) {
+        onInflate(undefined, true);
+      }
+      else {
+        doRateLimitedNextEntries();
+      }
+    });
+  }
+
+  // In V8, if we spawn too many CPU intensive callback functions
+  // at once, it is smart enough to rate limit it automatically
+  // This, however, is not the case for other Javascript VMs,
+  // so we need to implement by hand a means to
+  // limit the max number of concurrent operations
+  function doRateLimitedNextEntries() {
+    while ( entryIndex < entries.length &&
+            (concurrentEntries < 1 ||
+             (concurrentEntries <= MAX_CONCURRENT_INFLATE &&
+              concurrentCost <= MAX_CONCURRENT_SIZE_COST))) {
+      doNextEntry();
+    }
+  }
+
+  doRateLimitedNextEntries();
 }
 
 function extractZip(options, onDone) {
@@ -93,64 +153,27 @@ function extractZip(options, onDone) {
       entries = entries.filter(function(entry) {
         return !entry.directory;
       });
-      console.log(options.name, 'entries.length:', entries.length);
-      var resultCount = entries.length;
-      var concurrentEntries = 0;
-      var concurrentCost = 0;
-      var entryIndex = 0;
-
-      function doNextEntry() {
-        if (entryIndex >= entries.length) {
-          return;
-        }
-        var entry = entries[entryIndex];
-        var estimatedSizeCost =
-          entry.uncompressedSize * (entry.uncompressedSize / entry.compressedSize);
-        ++entryIndex;
-        ++concurrentEntries;
-        concurrentCost += estimatedSizeCost;
-
-        var writer = getZipWriter(options, entry);
-        entry.getData(writer, function onGotDataForZipEntry(data) {
-          onDone(undefined, false, {
-            fileEntry: entry,
-            contents: data,
-          });
-
-          --concurrentEntries;
-          --resultCount;
-          concurrentCost -= estimatedSizeCost;
-          if (resultCount < 1) {
-            onDone(undefined, true);
-          }
-          else {
-            doRateLimitedNextEntries();
-          }
+      if (!!options.preemptiveTreeMkdir) {
+        // Preemptively construct all of the required directories
+        // to avoid having to do this repetitively as each file is written
+        var dirs = entries.map(function dirOfFile(entry) {
+          return options.extractFolder+'/'+entry.filename.replace( /\/[^\/]+$/ , '');
+        });
+        treeMkdir(dirs, function onCompleteRootTree(errors) {
+          // console.log('mkdir tree completed', 'completed', completedSubTrees, '/', totalSubTrees, 'errors:', errors);
+          console.log('mkdir tree completed', 'errors:', errors);
+          zipInflateEntries(options, entries, onDone);
         });
       }
-
-      // In V8, if we spawn too many CPU intensive callback functions
-      // at once, it is smart enough to rate limit it automatically
-      // This, however, is not the case for other Javascript VMs,
-      // so we need to implement by hand a means to
-      // limit the max number of concurrent operations
-      function doRateLimitedNextEntries() {
-        while (concurrentEntries < 1 ||
-               (concurrentEntries <= MAX_CONCURRENT_INFLATE &&
-                concurrentCost <= MAX_CONCURRENT_SIZE_COST)) {
-          doNextEntry();
-        }
+      else {
+        zipInflateEntries(options, entries, onDone);
       }
-
-      doRateLimitedNextEntries();
     });
   }, function onZipReaderCreateFailed(err) {
-    console.error(err, err.stack);
-
     writeOutMessage('Error: '+err);
     writeOutMessage('Error: '+err.stack);
 
-    throw err;
+    onFail(err);
   });
 }
 
@@ -231,6 +254,15 @@ function readFile(options, onDone) {
   }, onFail);
 }
 
+/**
+ * Make a directory recursively
+ *
+ * @param  {DirectoryEntry}   fsRoot File system root:
+ *   http://docs.phonegap.com/en/edge/cordova_file_file.md.html#DirectoryEntry
+ *   http://docs.phonegap.com/en/edge/cordova_file_file.md.html#FileSystem
+ * @param  {String} path      The path of the directory, relative to file system root
+ * @param  {Function} onDone  Callback
+ */
 function mkdirp(fsRoot, path, onDone) {
     var dirs = path.split('/').reverse();
 
@@ -239,7 +271,7 @@ function mkdirp(fsRoot, path, onDone) {
       fsRoot.getDirectory(dir, {
         create : true,
         exclusive : false,
-      },  onCreateDirSuccess, onCreateDirFailure);
+      }, onCreateDirSuccess, onCreateDirFailure);
     }
 
     function mkdirSub() {
@@ -258,24 +290,113 @@ function mkdirp(fsRoot, path, onDone) {
     }
 
     function onCreateDirFailure(err) {
-      // TODO start doing some form of optimisation like this
-      // if (!!err && err.code === FileError.PATH_EXISTS_ERR) {
-      //   // We can safely ignore any errors that occur
-      //   // as a result of the directory already existing.
-      //   //
-      //   // In fact, we use `exclusive: true`to intentionally trip up this error
-      //   // in order to shortcut to safety to performance optimisation reasons.
-      //   mkdirSub();
-      // }
-      // else {
-      //   console.log('mkdir fail', err, !!err && err.stack);
-      //   throw err;
-      // }
       console.log('mkdir fail', err, !!err && err.stack);
       throw err;
     }
 
     mkdir(dirs.pop());
+}
+
+/**
+ * Make a list of directories efficiently,
+ * by constructing a tree data structure
+ *
+ * @param  {Array<String>}  dirs               A list of directories that need to be constructed
+ * @param  {Function}       onCompleteRootTree Gets called once complete, the first parameter will be an array of errors
+ */
+function treeMkdir(dirs, onCompleteRootTree) {
+  var tree = {};
+  dirs.forEach(function addToTree(dir) {
+    var node = tree;
+    var segments = dir.split('/');
+    for (var i = 0; i < segments.length; ++i) {
+      var segment = segments[i];
+      if (!node[segment]) {
+        node[segment] = {};
+      }
+      node = node[segment];
+    }
+  });
+
+  // Now recur through the nodes in the tree, breadth-first search,
+  // and mkdir each node in turn
+  // This ensures that the minimum number of mkdirs is needed
+  window.requestFileSystem(LocalFileSystem.PERSISTENT, 0, function onGotFileSytem(fileSys) {
+    var errors = [];
+
+    // var erroredSubTrees = 0;
+    // var createdSubTrees = 0;
+    // var completedSubTrees = 0;
+    // var startedSubTrees = 0;
+    // var totalSubTrees = 0;
+
+    mkdirTree('', tree, onCompleteRootTree);
+
+    function mkdirTree(path, node, onCompleteTree) {
+      var subDirs = Object.keys(node);
+      var numSubDirs = subDirs.length;
+      // totalSubTrees += numSubDirs;
+
+      if (numSubDirs === 0) {
+        // Termination condition
+        onCompleteTree();
+        return;
+      }
+
+      var numLocalAttempts = 0;
+
+      subDirs.forEach(function eachSubDir(subDir) {
+        // ++startedSubTrees;
+        var subDirPath = (path.length > 0) ? path+'/'+subDir : subDir;
+        var subNode = node[subDir];
+
+        mkdir(subDirPath, function onCreateDirSuccess(dirEntry) {
+          // ++createdSubTrees;
+          // Recur
+          mkdirTree(subDirPath, subNode, function onCompleteSubTree() {
+            ++numLocalAttempts;
+            // checkCompletedSubdirs();
+            // ++completedSubTrees;
+            if (numLocalAttempts >= numSubDirs) {
+              onCompleteTree(errors);
+            }
+          });
+        }, function onCreateDirFailure(err) {
+          ++numLocalAttempts;
+          // ++erroredSubTrees;
+          errors.push({
+            err: err,
+            path: path,
+            subDir: subDir,
+          });
+          // checkCompletedSubdirs();
+          if (numLocalAttempts >= numSubDirs) {
+            onCompleteTree(errors);
+          }
+        });
+      });
+
+      // function checkCompletedSubdirs() {
+      //   console.log('path', path, 'total', totalSubTrees, 'completed', completedSubTrees,
+      //     'created', createdSubTrees, 'started', startedSubTrees, 'errored', erroredSubTrees);
+      //   if (startedSubTrees >= totalSubTrees &&
+      //     completedSubTrees >= createdSubTrees &&
+      //     erroredSubTrees + createdSubTrees >=  totalSubTrees) {
+      //     // // Exit this recursion
+      //     // onCompleteTree();
+      //     console.log('COMPLETE!');
+      //   }
+      // }
+    }
+
+    function mkdir(dirPath, onCreateDirSuccess, onCreateDirFailure) {
+      // console.log('mkdir', dirPath);
+      fileSys.root.getDirectory(dirPath, {
+        create : true,
+        exclusive : false,
+      }, onCreateDirSuccess, onCreateDirFailure);
+    }
+  });
 }
 
 function getZipReader(options) {
