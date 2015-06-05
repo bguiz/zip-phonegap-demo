@@ -42,6 +42,7 @@ function extractZipToFolder(options, onDone) {
     readerUrl: options.readerUrl,
     writerType: 'BlobWriter',
     preemptiveTreeMkdir: true,
+    extractFolder: options.extractFolder,
   };
   extractZip(zipOptions, function onExtractZipDone(err, allDone, fileInfo) {
     if (!!err) {
@@ -78,7 +79,11 @@ function extractZipToFolder(options, onDone) {
     }
     function checkComplete() {
       if (allInflated && numFilesWritten + numFilesErrored >= numFiles) {
-        onDone(undefined, numFiles);
+        var error;
+        if (numFilesErrored > 0) {
+          error = 'Number of files errored: '+numFilesErrored;
+        }
+        onDone(error, numFilesWritten);
       }
     }
   });
@@ -127,9 +132,10 @@ function zipInflateEntries(options, entries, onInflate) {
   // so we need to implement by hand a means to
   // limit the max number of concurrent operations
   function doRateLimitedNextEntries() {
-    while (concurrentEntries < 1 ||
-           (concurrentEntries <= MAX_CONCURRENT_INFLATE &&
-            concurrentCost <= MAX_CONCURRENT_SIZE_COST)) {
+    while ( entryIndex < entries.length &&
+            (concurrentEntries < 1 ||
+             (concurrentEntries <= MAX_CONCURRENT_INFLATE &&
+              concurrentCost <= MAX_CONCURRENT_SIZE_COST))) {
       doNextEntry();
     }
   }
@@ -151,7 +157,7 @@ function extractZip(options, onDone) {
         // Preemptively construct all of the required directories
         // to avoid having to do this repetitively as each file is written
         var dirs = entries.map(function dirOfFile(entry) {
-          return entry.filename.replace( /\/[^\/]+$/ , '');
+          return options.extractFolder+'/'+entry.filename.replace( /\/[^\/]+$/ , '');
         });
         treeMkdir(dirs, function onCompleteRootTree(errors) {
           // console.log('mkdir tree completed', 'completed', completedSubTrees, '/', totalSubTrees, 'errors:', errors);
