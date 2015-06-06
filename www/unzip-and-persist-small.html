@@ -61,7 +61,8 @@
         <script type="application/javascript" src="js/3rd/zip.js/mime-types.js"></script>
 
         <!-- internal -->
-        <script type="application/javascript" src="js/bguiz-phonegap-zip-fs.js"></script>
+        <script type="application/javascript" src="js/util.js"></script>
+        <script type="application/javascript" src="js/cordova.zip-file-system.js"></script>
 
         <script>
           Benchmark.prototype.setup = function setupBenchmark() {
@@ -88,7 +89,7 @@
               // extractFolder: 'unzipped/large-complex-zip-file',
               extractFolder: 'unzipped/small-zip-file',
             };
-            extractZipToFolder(options, function onExtractZipToFolderDone(err, numFiles) {
+            window.CordovaZipFileSystem.zip.extractToFolder(options, function onExtractZipToFolderDone(err, numFiles) {
               if (!!err) {
                 onFail(err);
               }

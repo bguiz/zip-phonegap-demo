@@ -36,17 +36,12 @@
         <script type="application/javascript" src="js/3rd/benchmark.js"></script>
 
         <!-- internal -->
-        <script type="application/javascript" src="js/bguiz-phonegap-zip-fs.js"></script>
+        <script type="application/javascript" src="js/util.js"></script>
+        <script type="application/javascript" src="js/cordova.zip-file-system.js"></script>
 
         <script>
           Benchmark.prototype.setup = function setupBenchmark() {
             //TODO
-          }
-
-          function writeOutMessage(message) {
-            var elem = document.getElementById('out');
-            elem.appendChild(document.createTextNode(message));
-            elem.appendChild(document.createElement('br'));
           }
 
           function run() {
@@ -85,7 +80,7 @@
           sampleText = sampleText.join('\n');
 
           function writeTextToFileTest(deferred) {
-            writeFile({
+            window.CordovaZipFileSystem.file.write({
               name: 'sample-text-file.txt',
               flags: {
                 create: true,
@@ -102,7 +97,7 @@
           }
 
           function readFileTest(deferred) {
-            readFile({
+            window.CordovaZipFileSystem.file.read({
               name: 'sample-text-file.txt',
               flags: {
                 create: true,
