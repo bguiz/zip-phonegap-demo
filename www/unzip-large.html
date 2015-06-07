@@ -47,7 +47,8 @@
         <script type="application/javascript" src="js/3rd/benchmark.js"></script>
 
         <!-- internal -->
-        <script type="application/javascript" src="js/bguiz-phonegap-zip-fs.js"></script>
+        <script type="application/javascript" src="js/util.js"></script>
+        <script type="application/javascript" src="js/cordova.zip-file-system.js"></script>
 
         <!-- set up -->
         <script>
@@ -56,10 +57,11 @@
 
               var sample_zip_url =
                 'http://github.com/bguiz/javascript-zip-performance-compare/raw/develop/files/large-complex-zip-file.zip';
+                // 'files/small-zip-file.zip';
 
               function doJsZipTest(deferred, info) {
                 var aggregateDataSize = 0;
-                extractZip({
+                window.CordovaZipFileSystem.zip.inflate({
                   useWebWorkers: info.useWebWorkers,
                   workerScripts: info.workerScripts,
                   readerType: 'HttpReader',

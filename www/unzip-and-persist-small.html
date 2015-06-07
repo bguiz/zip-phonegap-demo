@@ -27,6 +27,22 @@
               </button>
             </div>
 
+            <div>
+              <p>cdvfile://</p>
+              <img id="cdvfile-img-plus" src="cdvfile://localhost/persistent/unzipped/small-zip-file/arithmetic-icons/plus.png" alt="" />
+              <img id="cdvfile-img-minus" src="cdvfile://localhost/persistent/unzipped/small-zip-file/arithmetic-icons/minus.png" alt="" />
+              <img id="cdvfile-img-times" src="cdvfile://localhost/persistent/unzipped/small-zip-file/arithmetic-icons/times.png" alt="" />
+              <img id="cdvfile-img-divide" src="cdvfile://localhost/persistent/unzipped/small-zip-file/arithmetic-icons/divide.png" alt="" />
+            </div>
+
+            <div>
+              <p>file://</p>
+              <img id="file-img-plus" src="file:///storage/emulated/0/unzipped/small-zip-file/arithmetic-icons/plus.png" alt="" />
+              <img id="file-img-minus" src="file:///storage/emulated/0/unzipped/small-zip-file/arithmetic-icons/minus.png" alt="" />
+              <img id="file-img-times" src="file:///storage/emulated/0/unzipped/small-zip-file/arithmetic-icons/times.png" alt="" />
+              <img id="file-img-divide" src="file:///storage/emulated/0/unzipped/small-zip-file/arithmetic-icons/divide.png" alt="" />
+            </div>
+
             <div id="out">
             </div>
         </div>
@@ -45,7 +61,8 @@
         <script type="application/javascript" src="js/3rd/zip.js/mime-types.js"></script>
 
         <!-- internal -->
-        <script type="application/javascript" src="js/bguiz-phonegap-zip-fs.js"></script>
+        <script type="application/javascript" src="js/util.js"></script>
+        <script type="application/javascript" src="js/cordova.zip-file-system.js"></script>
 
         <script>
           Benchmark.prototype.setup = function setupBenchmark() {
@@ -72,7 +89,7 @@
               // extractFolder: 'unzipped/large-complex-zip-file',
               extractFolder: 'unzipped/small-zip-file',
             };
-            extractZipToFolder(options, function onExtractZipToFolderDone(err, numFiles) {
+            window.CordovaZipFileSystem.zip.extractToFolder(options, function onExtractZipToFolderDone(err, numFiles) {
               if (!!err) {
                 onFail(err);
               }
