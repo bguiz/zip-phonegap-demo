@@ -153,10 +153,10 @@
   function downloadUrlAsBlob(url, onDone) {
     console.log('downloadUrlAsBlob', url);
     var xhr = new XMLHttpRequest();
+    xhr.open('GET', url, true);
     xhr.responseType = 'blob';
     xhr.onreadystatechange = onXhrStateChange;
-    xhr.open('GET', url, true);
-    xhr.send();
+    xhr.send(null);
 
     function onXhrStateChange() {
       if (xhr.readyState === 4) {
