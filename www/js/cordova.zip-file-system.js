@@ -255,24 +255,18 @@
       if (!!err) {
         onFail(err);
       }
-      fileEntry.createWriter(function onWriterCreated(writer) {
-        var blob;
-        if (options.blob) {
-          blob = options.blob;
-        }
-        else if (options.content && options.mimeType) {
-          blob = new global.Blob([options.contents], { type: options.mimeType });
-        }
-        else {
-          throw 'Cannot create file, invalid options';
-        }
-        writer.onwriteend = onWrote;
-        writer.write(blob);
+      var blob;
+      if (options.blob) {
+        blob = options.blob;
+      }
+      else if (options.content && options.mimeType) {
+        blob = new global.Blob([options.contents], { type: options.mimeType });
+      }
+      else {
+        throw 'Cannot create file, invalid options';
+      }
 
-        function onWrote(evt) {
-          onDone(writer.error, evt, fileEntry);
-        }
-      }, onFail);
+      writeBlobToFile(fileEntry, blob, onDone);
     }, onFail);
   }
 
@@ -281,24 +275,7 @@
       if (!!err) {
         onFail(err);
       }
-      fileEntry.file(function onGotFile(file) {
-        var reader = new global.FileReader();
-        reader.onloadend = onRead;
-        switch(options.method) {
-          case 'readAsText':
-          case 'readAsDataURL':
-          case 'readAsBinaryString':
-          case 'readAsArrayBuffer':
-            reader[options.method](file);
-            break;
-          default:
-            throw 'Unrecognised file reader method: '+ options.method;
-        }
-
-        function onRead(evt) {
-          onDone(reader.error, evt);
-        }
-      }, onFail);
+      readFileImpl(fileEntry, options, onDone);
     }, onFail);
   }
 
@@ -465,20 +442,24 @@
    */
 
   //NOTE this is the closest we get to #IFDEF style conditional compilation
-  var getFileSystemRoot, mkdir, createFile;
+  var getFileSystemRoot, mkdir, createFile, writeBlobToFile, readFileImpl;
   function initPlatformSpecificFunctions() {
     if (!!global.device &&
-      global.device.available &&
-      typeof global.device.platform === 'string' &&
-      global.device.platform.toLowerCase() === 'windows') {
+        global.device.available &&
+        typeof global.device.platform === 'string' &&
+        global.device.platform.toLowerCase() === 'windows') {
       getFileSystemRoot = _windows_getFileSystemRoot;
       mkdir = _windows_mkdir;
       createFile = _windows_createFile;
+      writeBlobToFile = _windows_writeBlobToFile;
+      readFileImpl = _windows_readFileImpl;
     }
     else {
       getFileSystemRoot = _regular_getFileSystemRoot;
       mkdir = _regular_mkdir;
       createFile = _regular_createFile;
+      writeBlobToFile = _regular_writeBlobToFile;
+      readFileImpl = _regular_readFileImpl;
     }
   }
 
@@ -518,6 +499,75 @@
     fsRoot
       .createFileAsync(path, global.Windows.Storage.CreationCollisionOption.openIfExists)
       .then(onGotFileEntry, onFailToGetFileEntry);
+  }
+
+  function _regular_writeBlobToFile(fileEntry, blob, onDone) {
+    fileEntry.createWriter(function onWriterCreated(writer) {
+      writer.onwriteend = onWrote;
+      writer.write(blob);
+
+      function onWrote(evt) {
+        onDone(writer.error, evt, fileEntry);
+      }
+    }, onFail);
+  }
+
+  function _windows_writeBlobToFile(fileEntry, blob, onDone) {
+    var blobStream = blob.msDetachStream();
+    Windows.Storage.Streams.RandomAccessStream
+      .copyAsync(blobStream, fileEntry)
+      .then(function onWrote() {
+          fileEntry
+            .flushAsync()
+            .done(function onFlushed() {
+              blobStream.close();
+              fileEntry.close();
+              onDone(undefined, { target: fileEntry }, fileEntry);
+            }, onFail);
+        }, onFail);
+  }
+
+  function _regular_readFileImpl(fileEntry, options, onDone) {
+    fileEntry.file(function onGotFile(file) {
+      var reader = new global.FileReader();
+      reader.onloadend = onRead;
+      switch (options.method) {
+        case 'readAsText':
+        case 'readAsDataURL':
+        case 'readAsBinaryString':
+        case 'readAsArrayBuffer':
+          // Do nothing
+          break;
+        default:
+          throw 'Unrecognised file reader method: '+ options.method;
+      }
+      reader[options.method](file);
+
+      function onRead(evt) {
+        onDone(reader.error, evt);
+      }
+    }, onFail);
+  }
+
+  function _windows_readFileImpl(fileEntry, options, onDone) {
+    var method;
+    switch (options.method) {
+      case 'readAsText':
+        method = 'readTextAsync';
+        break;
+      case 'readAsDataURL':
+        throw 'DataURL unsupported on Windows';
+      case 'readAsBinaryString':
+        throw 'BinaryString unsupported on Windows';
+      case 'readAsArrayBuffer':
+        method = 'ReadBufferAsync';
+        break;
+      default:
+        throw 'Unrecognised file reader method: '+ options.method;
+      }
+    Windows.Storage.FileIO
+      [method](fileEntry)
+      .then(function onRead(contents) {}, onFail);
   }
 })(this);
 
