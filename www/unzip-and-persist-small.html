@@ -89,7 +89,7 @@
               // extractFolder: 'unzipped/large-complex-zip-file',
               extractFolder: 'unzipped/small-zip-file',
             };
-            window.CordovaZipFileSystem.zip.extractToFolder(options, function onExtractZipToFolderDone(err, numFiles) {
+            window.CordovaZipFileSystem.zip.downloadAndExtractToFolder(options, function onExtractZipToFolderDone(err, numFiles) {
               if (!!err) {
                 onFail(err);
               }

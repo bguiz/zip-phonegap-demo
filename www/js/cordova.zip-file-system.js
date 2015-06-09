@@ -23,6 +23,7 @@
       getReader: getZipReader,
       getWriter: getZipWriter,
       extractToFolder: extractZipToFolder,
+      downloadAndExtractToFolder: downloadAndExtractZipToFolder,
       inflateEntries: zipInflateEntries,
       inflate: extractZip,
     },
@@ -35,6 +36,25 @@
   function onFail(err) {
     console.log(err);
     throw err;
+  }
+
+  function downloadAndExtractZipToFolder(options, onDone) {
+    console.log('downloadAndExtractZip', options);
+    var blob;
+    if (options.readerUrl) {
+      downloadUrlAsBlob(options.readerUrl, function onGotBlob(err, blob) {
+        if (!!err) {
+          onFail(err);
+        }
+        options.readerType = 'BlobReader';
+        options.readerUrl = undefined;
+        options.readerBlob = blob;
+        extractZipToFolder(options, onDone);
+      });
+    }
+    else {
+      extractZipToFolder(options, done);
+    }
   }
 
   /**
@@ -61,11 +81,17 @@
     var zipOptions = {
       useWebWorkers: options.useWebWorkers,
       workerScripts: options.workerScripts,
-      readerType: 'HttpReader',
+
+      readerType: options.readerType,
       readerUrl: options.readerUrl,
+      readerBlob: options.readerBlob,
+      readerText: options.readerText,
+      readerDataUri: options.readerDataUri,
+
       writerType: 'BlobWriter',
-      preemptiveTreeMkdir: true,
+
       extractFolder: options.extractFolder,
+      preemptiveTreeMkdir: true,
     };
     extractZip(zipOptions, function onExtractZipDone(err, allDone, fileInfo) {
       if (!!err) {
@@ -84,12 +110,14 @@
           },
           blob: fileInfo.contents,
         };
+
         ++numFiles;
         writeFile(fileOptions, function onWriteFileDone(err, evt, fileEntry) {
           if (!!err) {
             ++numFilesErrored;
             onFail(err);
           }
+
           ++numFilesWritten;
           console.log('File written:', fileInfo,
             'numFilesWritten:', numFilesWritten,
@@ -114,6 +142,37 @@
         }
       }
     });
+  }
+
+  /**
+   * Downloads a file at given URL and calls back with it as a Blob
+   *
+   * @param  {String} url    URL of the file to be downloaded
+   * @param  {Function} onDone Parameters: error, blob
+   */
+  function downloadUrlAsBlob(url, onDone) {
+    console.log('downloadUrlAsBlob', url);
+    var xhr = new XMLHttpRequest();
+    xhr.responseType = 'blob';
+    xhr.onreadystatechange = onXhrStateChange;
+    xhr.open('GET', url, true);
+    xhr.send();
+
+    function onXhrStateChange() {
+      if (xhr.readyState === 4) {
+        if (xhr.status === 200) {
+          // Success
+          console.log('success downloadUrlAsBlob', xhr.response);
+          var blob = new global.Blob([xhr.response], { type: zip.getMimeType(url) });
+          onDone(undefined, blob);
+        }
+        else {
+          // Error
+          console.log('failure downloadUrlAsBlob', xhr);
+          onDone(xhr, xhr.status);
+        }
+      }
+    }
   }
 
   var MAX_CONCURRENT_INFLATE = 512;
@@ -195,6 +254,7 @@
   function extractZip(options, onDone) {
     zip.useWebWorkers = options.useWebWorkers;
     zip.workerScripts = options.workerScripts;
+
     var reader = getZipReader(options);
 
     zip.createReader(reader, function onZipReaderCreated(zipReader) {
