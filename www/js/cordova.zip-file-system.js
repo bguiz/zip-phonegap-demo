@@ -1,6 +1,13 @@
 'use strict';
 
 (function(global) {
+  if (!global.zip) {
+    throw 'zip library is unavailable - cannot continue';
+  }
+
+  var zip = global.zip;
+
+  initPlatformSpecificFunctions();
 
   var CordovaZipFileSystem = {
     directory: {
@@ -87,8 +94,7 @@
           console.log('File written:', fileInfo,
             'numFilesWritten:', numFilesWritten,
             'evt.target.localURL:', evt.target.localURL,
-            'fileEntry.toURL()', fileEntry.toURL(),
-            'fileEntry.toNativeURL()', fileEntry.toNativeURL()
+            'fileEntry.toURL()', fileEntry.toURL()
             );
           checkComplete();
         });
@@ -221,11 +227,11 @@
 
   function getDataFile(path, options, onGotFileEntry) {
     options = options || {};
-    window.requestFileSystem(LocalFileSystem.PERSISTENT, 0, function onGotFileSytem(fileSys) {
+    getFileSystemRoot(function onGotFileSytemRoot(fsRoot) {
       // console.log('fileSys:', fileSys);
       if (options.mkdirp) {
         var dirPath = path.replace( /\/[^\/]+$/ , '');
-        mkdirp(fileSys.root, dirPath, function onMkdirpDone(err, dirEntry) {
+        mkdirp(fsRoot, dirPath, function onMkdirpDone(err, dirEntry) {
           if (!!err) {
             onFail(err);
           }
@@ -236,12 +242,12 @@
         continueGetDataFile();
       }
       function continueGetDataFile() {
-        fileSys.root.getFile(path, options, function(fileEntry) {
+        createFile(fsRoot, path, options, function onGotFileEntryImpl(fileEntry) {
           // console.log('fileEntry:', fileEntry);
           onGotFileEntry(undefined, fileEntry);
         }, onFail);
       }
-    }, onFail);
+    });
   }
 
   function writeFile(options, onDone) {
@@ -249,24 +255,18 @@
       if (!!err) {
         onFail(err);
       }
-      fileEntry.createWriter(function onWriterCreated(writer) {
-        var blob;
-        if (options.blob) {
-          blob = options.blob;
-        }
-        else if (options.content && options.mimeType) {
-          blob = new Blob([options.contents], { type: options.mimeType });
-        }
-        else {
-          throw 'Cannot create file, invalid options';
-        }
-        writer.onwriteend = onWrote;
-        writer.write(blob);
+      var blob;
+      if (options.blob) {
+        blob = options.blob;
+      }
+      else if (options.content && options.mimeType) {
+        blob = new global.Blob([options.contents], { type: options.mimeType });
+      }
+      else {
+        throw 'Cannot create file, invalid options';
+      }
 
-        function onWrote(evt) {
-          onDone(writer.error, evt, fileEntry);
-        }
-      }, onFail);
+      writeBlobToFile(fileEntry, blob, onDone);
     }, onFail);
   }
 
@@ -275,24 +275,7 @@
       if (!!err) {
         onFail(err);
       }
-      fileEntry.file(function onGotFile(file) {
-        var reader = new FileReader();
-        reader.onloadend = onRead;
-        switch(options.method) {
-          case 'readAsText':
-          case 'readAsDataURL':
-          case 'readAsBinaryString':
-          case 'readAsArrayBuffer':
-            reader[options.method](file);
-            break;
-          default:
-            throw 'Unrecognised file reader method: '+ options.method;
-        }
-
-        function onRead(evt) {
-          onDone(reader.error, evt);
-        }
-      }, onFail);
+      readFileImpl(fileEntry, options, onDone);
     }, onFail);
   }
 
@@ -308,17 +291,9 @@
   function mkdirp(fsRoot, path, onDone) {
       var dirs = path.split('/').reverse();
 
-      function mkdir(dir) {
-        // console.log('mkdir', dir);
-        fsRoot.getDirectory(dir, {
-          create : true,
-          exclusive : false,
-        }, onCreateDirSuccess, onCreateDirFailure);
-      }
-
       function mkdirSub() {
         if (dirs.length > 0) {
-          mkdir(dirs.pop());
+          mkdir(fsRoot, dirs.pop(), onCreateDirSuccess, onCreateDirFailure);
         } else {
           console.log('mkdir -p OK', path);
           onDone(undefined, path);
@@ -336,17 +311,10 @@
         throw err;
       }
 
-      mkdir(dirs.pop());
+      mkdir(fsRoot, dirs.pop(), onCreateDirSuccess, onCreateDirFailure);
   }
 
-  /**
-   * Make a list of directories efficiently,
-   * by constructing a tree data structure
-   *
-   * @param  {Array<String>}  dirs               A list of directories that need to be constructed
-   * @param  {Function}       onCompleteRootTree Gets called once complete, the first parameter will be an array of errors
-   */
-  function treeMkdir(dirs, onCompleteRootTree) {
+  function constructTreeFromListOfDirectories(dirs) {
     var tree = {};
     dirs.forEach(function addToTree(dir) {
       var node = tree;
@@ -359,25 +327,32 @@
         node = node[segment];
       }
     });
+    return tree;
+  }
 
-    // Now recur through the nodes in the tree, breadth-first search,
-    // and mkdir each node in turn
-    // This ensures that the minimum number of mkdirs is needed
-    window.requestFileSystem(LocalFileSystem.PERSISTENT, 0, function onGotFileSytem(fileSys) {
+  /**
+   * Make a list of directories efficiently,
+   * by constructing a tree data structure
+   *
+   * @param  {Array<String>}  dirs               A list of directories that need to be constructed
+   * @param  {Function}       onCompleteRootTree Gets called once complete, the first parameter will be an array of errors
+   */
+  function treeMkdir(dirs, onCompleteRootTree) {
+    var tree = constructTreeFromListOfDirectories(dirs);
+
+    getFileSystemRoot(onGotFileSytem);
+
+    function onGotFileSytem(fileSys) {
+      // Now recur through the nodes in the tree, breadth-first search,
+      // and mkdir each node in turn
+      // This ensures that the minimum number of mkdirs is needed
       var errors = [];
-
-      // var erroredSubTrees = 0;
-      // var createdSubTrees = 0;
-      // var completedSubTrees = 0;
-      // var startedSubTrees = 0;
-      // var totalSubTrees = 0;
 
       mkdirTree('', tree, onCompleteRootTree);
 
       function mkdirTree(path, node, onCompleteTree) {
         var subDirs = Object.keys(node);
         var numSubDirs = subDirs.length;
-        // totalSubTrees += numSubDirs;
 
         if (numSubDirs === 0) {
           // Termination condition
@@ -388,57 +363,31 @@
         var numLocalAttempts = 0;
 
         subDirs.forEach(function eachSubDir(subDir) {
-          // ++startedSubTrees;
           var subDirPath = (path.length > 0) ? path+'/'+subDir : subDir;
           var subNode = node[subDir];
 
-          mkdir(subDirPath, function onCreateDirSuccess(dirEntry) {
-            // ++createdSubTrees;
+          mkdir(fileSys, subDirPath, function onCreateDirSuccess(dirEntry) {
             // Recur
             mkdirTree(subDirPath, subNode, function onCompleteSubTree() {
               ++numLocalAttempts;
-              // checkCompletedSubdirs();
-              // ++completedSubTrees;
               if (numLocalAttempts >= numSubDirs) {
                 onCompleteTree(errors);
               }
             });
           }, function onCreateDirFailure(err) {
             ++numLocalAttempts;
-            // ++erroredSubTrees;
             errors.push({
               err: err,
               path: path,
               subDir: subDir,
             });
-            // checkCompletedSubdirs();
             if (numLocalAttempts >= numSubDirs) {
               onCompleteTree(errors);
             }
           });
         });
-
-        // function checkCompletedSubdirs() {
-        //   console.log('path', path, 'total', totalSubTrees, 'completed', completedSubTrees,
-        //     'created', createdSubTrees, 'started', startedSubTrees, 'errored', erroredSubTrees);
-        //   if (startedSubTrees >= totalSubTrees &&
-        //     completedSubTrees >= createdSubTrees &&
-        //     erroredSubTrees + createdSubTrees >=  totalSubTrees) {
-        //     // // Exit this recursion
-        //     // onCompleteTree();
-        //     console.log('COMPLETE!');
-        //   }
-        // }
       }
-
-      function mkdir(dirPath, onCreateDirSuccess, onCreateDirFailure) {
-        // console.log('mkdir', dirPath);
-        fileSys.root.getDirectory(dirPath, {
-          create : true,
-          exclusive : false,
-        }, onCreateDirSuccess, onCreateDirFailure);
-      }
-    });
+    }
   }
 
   function getZipReader(options) {
@@ -448,7 +397,7 @@
         reader = new zip.TextReader(options.readerText);
         break;
       case 'BlobReader':
-        reader = new zp.BlobReader(options.readerBlob);
+        reader = new zip.BlobReader(options.readerBlob);
         break;
       case 'Data64URIReader':
         reader = new zip.Data64URIReader(options.readerDataUri);
@@ -484,6 +433,141 @@
         throw 'Unrecognised zip writer type: '+options.writerType;
     }
     return writer;
+  }
+
+  /*
+   * Platform-specific functions
+   * Because Windows Phone Universal apps(*.appx) do not support the
+   * Cordova file system API
+   */
+
+  //NOTE this is the closest we get to #IFDEF style conditional compilation
+  var getFileSystemRoot, mkdir, createFile, writeBlobToFile, readFileImpl;
+  function initPlatformSpecificFunctions() {
+    if (!!global.device &&
+        global.device.available &&
+        typeof global.device.platform === 'string' &&
+        global.device.platform.toLowerCase() === 'windows') {
+      getFileSystemRoot = _windows_getFileSystemRoot;
+      mkdir = _windows_mkdir;
+      createFile = _windows_createFile;
+      writeBlobToFile = _windows_writeBlobToFile;
+      readFileImpl = _windows_readFileImpl;
+    }
+    else {
+      getFileSystemRoot = _regular_getFileSystemRoot;
+      mkdir = _regular_mkdir;
+      createFile = _regular_createFile;
+      writeBlobToFile = _regular_writeBlobToFile;
+      readFileImpl = _regular_readFileImpl;
+    }
+  }
+
+  function _regular_getFileSystemRoot(onGotFileSystem) {
+    // console.log('getFileSystemRoot', dirPath);
+    global.requestFileSystem(global.LocalFileSystem.PERSISTENT, 0,
+      function onGotFileSytemPre(fileSys) {
+        onGotFileSystem(fileSys.root);
+      });
+  }
+
+  function _windows_getFileSystemRoot(onGotFileSystem) {
+    // console.log('getFileSystemRoot-windows', dirPath);
+    onGotFileSystem(global.Windows.Storage.ApplicationData.current.localFolder);
+  }
+
+  function _regular_mkdir(fsRoot, dirPath, onCreateDirSuccess, onCreateDirFailure) {
+    // console.log('mkdir', dirPath);
+    fsRoot.getDirectory(dirPath, {
+      create : true,
+      exclusive : false,
+    }, onCreateDirSuccess, onCreateDirFailure);
+  }
+
+  function _windows_mkdir(fsRoot, dirPath, onCreateDirSuccess, onCreateDirFailure) {
+    // console.log('mkdir-windows', dirPath);
+    fsRoot
+      .createFolderAsync(dirPath, global.Windows.Storage.CreationCollisionOption.openIfExists)
+      .then(onCreateDirSuccess, onCreateDirFailure);
+  }
+
+  function _regular_createFile(fsRoot, path, options, onGotFileEntry, onFailToGetFileEntry) {
+    fsRoot.getFile(path, options, onGotFileEntry, onFailToGetFileEntry);
+  }
+
+  function _windows_createFile(fsRoot, path, options, onGotFileEntry, onFailToGetFileEntry) {
+    fsRoot
+      .createFileAsync(path, global.Windows.Storage.CreationCollisionOption.openIfExists)
+      .then(onGotFileEntry, onFailToGetFileEntry);
+  }
+
+  function _regular_writeBlobToFile(fileEntry, blob, onDone) {
+    fileEntry.createWriter(function onWriterCreated(writer) {
+      writer.onwriteend = onWrote;
+      writer.write(blob);
+
+      function onWrote(evt) {
+        onDone(writer.error, evt, fileEntry);
+      }
+    }, onFail);
+  }
+
+  function _windows_writeBlobToFile(fileEntry, blob, onDone) {
+    var blobStream = blob.msDetachStream();
+    Windows.Storage.Streams.RandomAccessStream
+      .copyAsync(blobStream, fileEntry)
+      .then(function onWrote() {
+          fileEntry
+            .flushAsync()
+            .done(function onFlushed() {
+              blobStream.close();
+              fileEntry.close();
+              onDone(undefined, { target: fileEntry }, fileEntry);
+            }, onFail);
+        }, onFail);
+  }
+
+  function _regular_readFileImpl(fileEntry, options, onDone) {
+    fileEntry.file(function onGotFile(file) {
+      var reader = new global.FileReader();
+      reader.onloadend = onRead;
+      switch (options.method) {
+        case 'readAsText':
+        case 'readAsDataURL':
+        case 'readAsBinaryString':
+        case 'readAsArrayBuffer':
+          // Do nothing
+          break;
+        default:
+          throw 'Unrecognised file reader method: '+ options.method;
+      }
+      reader[options.method](file);
+
+      function onRead(evt) {
+        onDone(reader.error, evt);
+      }
+    }, onFail);
+  }
+
+  function _windows_readFileImpl(fileEntry, options, onDone) {
+    var method;
+    switch (options.method) {
+      case 'readAsText':
+        method = 'readTextAsync';
+        break;
+      case 'readAsDataURL':
+        throw 'DataURL unsupported on Windows';
+      case 'readAsBinaryString':
+        throw 'BinaryString unsupported on Windows';
+      case 'readAsArrayBuffer':
+        method = 'ReadBufferAsync';
+        break;
+      default:
+        throw 'Unrecognised file reader method: '+ options.method;
+      }
+    Windows.Storage.FileIO
+      [method](fileEntry)
+      .then(function onRead(contents) {}, onFail);
   }
 })(this);
 
