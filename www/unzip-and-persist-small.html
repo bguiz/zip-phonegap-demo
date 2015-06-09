@@ -89,7 +89,7 @@
               // extractFolder: 'unzipped/large-complex-zip-file',
               extractFolder: 'unzipped/small-zip-file',
             };
-            window.CordovaZipFileSystem.zip.extractToFolder(options, function onExtractZipToFolderDone(err, numFiles) {
+            window.CordovaZipFileSystem.zip.downloadAndExtractToFolder(options, function onExtractZipToFolderDone(err, numFiles) {
               if (!!err) {
                 onFail(err);
               }
@@ -128,7 +128,7 @@
 
           function onDeviceReady() {
             var elem = document.getElementById('runbutton');
-            elem.addEventListener('touchend', function() {
+            elem.addEventListener('click', function() {
               run();
             });
           }
