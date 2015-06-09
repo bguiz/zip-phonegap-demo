@@ -1,6 +1,6 @@
 <?xml version='1.0' encoding='utf-8'?>
 <widget
-    id="com.bguiz.zip-phonegap-demo"
+    id="com.bguiz.zipphonegapdemo"
     version="1.5.4"
     xmlns="http://www.w3.org/ns/widgets"
     xmlns:gap="http://phonegap.com/ns/1.0">
