@@ -40,21 +40,76 @@
 
   function downloadAndExtractZipToFolder(options, onDone) {
     console.log('downloadAndExtractZip', options);
-    var blob;
+
     if (options.readerUrl) {
-      downloadUrlAsBlob(options.readerUrl, function onGotBlob(err, blob) {
-        if (!!err) {
-          onFail(err);
-        }
-        options.readerType = 'BlobReader';
-        options.readerUrl = undefined;
-        options.readerBlob = blob;
-        extractZipToFolder(options, onDone);
-      });
+      var downloadFileOnlyName = (options.readerUrl.replace( /^.*\// , ''));
+      var downloadFilePath = options.downloadFolder+'/'+downloadFileOnlyName;
+      if (typeof options.downloadCachedUntil === 'number' &&
+          Date.now() < options.downloadCachedUntil) {
+        // The current time is earlier than the cached date
+        // So simply find the existing one and re-use it.
+        // If not found in `options.downloadFolder`, however, we have to download it
+        readFile({
+          name: downloadFilePath,
+          flags: {
+            create: false,
+            exclusive: false,
+          },
+          method: 'readAsArrayBuffer',
+        }, function onReadFile(err, evt) {
+          if (!!err) {
+            console.log('re-use cached file failed for', downloadFilePath);
+            downloadTheFile();
+          }
+          else {
+            console.log('re-use cached file for', downloadFilePath);
+            var blob = new global.Blob([evt.target.result], { type: zip.getMimeType(downloadFilePath) });
+            options.readerBlob = blob;
+            options.readerType = 'BlobReader';
+            options.readerUrl = undefined;
+            extractZipToFolder(options, onDone);
+          }
+        });
+      }
+      else {
+        downloadTheFile();
+      }
+
     }
     else {
-      extractZipToFolder(options, done);
+      console.log('downloadAndExtractZipToFolder called without options.readerUrl');
+      extractZipToFolder(options, onDone);
     }
+
+    function downloadTheFile() {
+        // So we download the file
+        downloadUrlAsBlob(options.readerUrl, function onGotBlob(err, blob) {
+          if (!!err) {
+            onFail(err);
+          }
+
+          // extraction will continue as per usual route, however,
+          // in the background, also persist this file to disk
+          if (options.downloadFolder) {
+            writeFile({
+              name: downloadFilePath,
+              blob: blob,
+              flags: {
+                create: true,
+                exclusive: false,
+                mkdirp: true,
+              },
+            }, function onSavedDownload(err, evt, fileEntry) {
+              console.log('onSavedDownload', err, evt, fileEntry);
+            });
+          }
+
+          options.readerType = 'BlobReader';
+          options.readerUrl = undefined;
+          options.readerBlob = blob;
+          extractZipToFolder(options, onDone);
+        });
+      }
   }
 
   /**
@@ -152,7 +207,7 @@
    */
   function downloadUrlAsBlob(url, onDone) {
     console.log('downloadUrlAsBlob', url);
-    var xhr = new XMLHttpRequest();
+    var xhr = new global.XMLHttpRequest();
     xhr.open('GET', url, true);
     xhr.responseType = 'blob';
     xhr.onreadystatechange = onXhrStateChange;
@@ -591,17 +646,19 @@
     fileEntry.file(function onGotFile(file) {
       var reader = new global.FileReader();
       reader.onloadend = onRead;
+
+      var method;
       switch (options.method) {
         case 'readAsText':
         case 'readAsDataURL':
         case 'readAsBinaryString':
         case 'readAsArrayBuffer':
-          // Do nothing
+          method = options.method;
           break;
         default:
           throw 'Unrecognised file reader method: '+ options.method;
       }
-      reader[options.method](file);
+      reader[method](file);
 
       function onRead(evt) {
         onDone(reader.error, evt);
@@ -627,7 +684,9 @@
       }
     Windows.Storage.FileIO
       [method](fileEntry)
-      .then(function onRead(contents) {}, onFail);
+      .then(function onRead(contents) {
+        onDone(undefined, contents);
+      }, onFail);
   }
 })(this);
 
