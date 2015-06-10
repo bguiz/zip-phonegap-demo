@@ -13,11 +13,11 @@
                             "count": 1
                         },
                         {
-                            "xml": "<feature name=\"File\"><param name=\"android-package\" value=\"org.apache.cordova.file.FileUtils\" /><param name=\"onload\" value=\"true\" /></feature>",
+                            "xml": "<feature name=\"Device\"><param name=\"android-package\" value=\"org.apache.cordova.device.Device\" /></feature>",
                             "count": 1
                         },
                         {
-                            "xml": "<feature name=\"Device\"><param name=\"android-package\" value=\"org.apache.cordova.device.Device\" /></feature>",
+                            "xml": "<feature name=\"File\"><param name=\"android-package\" value=\"org.apache.cordova.file.FileUtils\" /><param name=\"onload\" value=\"true\" /></feature>",
                             "count": 1
                         }
                     ]
@@ -39,11 +39,11 @@
         "cordova-plugin-whitelist": {
             "PACKAGE_NAME": "com.bguiz.zip_phonegap_demo"
         },
-        "org.apache.cordova.file": {
-            "PACKAGE_NAME": "com.bguiz.zip_phonegap_demo"
+        "cordova-plugin-device": {
+            "PACKAGE_NAME": "com.bguiz.zipphonegapdemo"
         },
-        "org.apache.cordova.device": {
-            "PACKAGE_NAME": "com.bguiz.zip_phonegap_demo"
+        "cordova-plugin-file": {
+            "PACKAGE_NAME": "com.bguiz.zipphonegapdemo"
         }
     },
     "dependent_plugins": {}

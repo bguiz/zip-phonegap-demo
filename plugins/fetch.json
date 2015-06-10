@@ -7,18 +7,18 @@
         "is_top_level": true,
         "variables": {}
     },
-    "org.apache.cordova.file": {
+    "cordova-plugin-device": {
         "source": {
             "type": "registry",
-            "id": "org.apache.cordova.file"
+            "id": "cordova-plugin-device"
         },
         "is_top_level": true,
         "variables": {}
     },
-    "org.apache.cordova.device": {
+    "cordova-plugin-file": {
         "source": {
             "type": "registry",
-            "id": "org.apache.cordova.device"
+            "id": "cordova-plugin-file"
         },
         "is_top_level": true,
         "variables": {}
