@@ -611,9 +611,24 @@
   }
 
   function _windows_createFile(fsRoot, path, options, onGotFileEntry, onFailToGetFileEntry) {
-    fsRoot
-      .createFileAsync(path, global.Windows.Storage.CreationCollisionOption.openIfExists)
-      .then(onGotFileEntry, onFailToGetFileEntry);
+    if (!!options.create) {
+      var windowsFlag;
+      if (!!options.exclusive) {
+        windowsFlag = global.Windows.Storage.CreationCollisionOption.failIfExists;
+      }
+      else {
+        windowsFlag = global.Windows.Storage.CreationCollisionOption.openIfExists;
+      }
+      fsRoot
+        .createFileAsync(path, windowsFlag)
+        .then(onGotFileEntry, onFailToGetFileEntry);
+    }
+    else {
+      //read
+      fsRoot.
+        getFileAsync(path)
+        .then(onGotFileEntry, onFailToGetFileEntry);
+    }
   }
 
   function _regular_writeBlobToFile(fileEntry, blob, onDone) {
