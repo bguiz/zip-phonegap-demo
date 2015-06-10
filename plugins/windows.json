@@ -1,0 +1,21 @@
+{
+    "prepare_queue": {
+        "installed": [],
+        "uninstalled": []
+    },
+    "config_munge": {
+        "files": {}
+    },
+    "installed_plugins": {
+        "cordova-plugin-whitelist": {
+            "PACKAGE_NAME": "zip-phonegap-demo"
+        },
+        "org.apache.cordova.device": {
+            "PACKAGE_NAME": "zip-phonegap-demo"
+        },
+        "org.apache.cordova.file": {
+            "PACKAGE_NAME": "zip-phonegap-demo"
+        }
+    },
+    "dependent_plugins": {}
+}
