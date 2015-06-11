@@ -7,9 +7,10 @@
 
   var zip = global.zip;
 
-  initPlatformSpecificFunctions();
-
   var CordovaZipFileSystem = {
+    platform: {
+      initialise: initPlatformSpecificFunctions,
+    },
     directory: {
       make: mkdirp,
       makeTree: treeMkdir,
@@ -344,7 +345,7 @@
     options = options || {};
     getFileSystemRoot(function onGotFileSytemRoot(fsRoot) {
       // console.log('fileSys:', fileSys);
-      if (options.mkdirp) {
+      if (!!options.mkdirp) {
         var dirPath = path.replace( /\/[^\/]+$/ , '');
         mkdirp(fsRoot, dirPath, function onMkdirpDone(err, dirEntry) {
           if (!!err) {

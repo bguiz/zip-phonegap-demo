@@ -111,6 +111,7 @@
 
           function run() {
             var suite = new Benchmark.Suite();
+            CordovaZipFileSystem.platform.initialise();
             suite
               .add('Test write files', {
                 defer: true,
