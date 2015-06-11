@@ -57,14 +57,14 @@
             exclusive: false,
           },
           method: 'readAsArrayBuffer',
-        }, function onReadFile(err, evt) {
-          if (!!err) {
+        }, function onReadFile(err, contents) {
+          if (!!err || !contents) {
             console.log('re-use cached file failed for', downloadFilePath);
             downloadTheFile();
           }
           else {
             console.log('re-use cached file for', downloadFilePath);
-            var blob = new global.Blob([evt.target.result], { type: zip.getMimeType(downloadFilePath) });
+            var blob = new global.Blob([contents], { type: zip.getMimeType(downloadFilePath) });
             options.readerBlob = blob;
             options.readerType = 'BlobReader';
             options.readerUrl = undefined;
@@ -100,8 +100,8 @@
                 exclusive: false,
                 mkdirp: true,
               },
-            }, function onSavedDownload(err, evt, fileEntry) {
-              console.log('onSavedDownload', err, evt, fileEntry);
+            }, function onSavedDownload(err, fileEntry, evt) {
+              console.log('onSavedDownload', err, fileEntry, evt);
             });
           }
 
@@ -149,6 +149,7 @@
       extractFolder: options.extractFolder,
       preemptiveTreeMkdir: true,
     };
+
     extractZip(zipOptions, function onExtractZipDone(err, allDone, fileInfo) {
       if (!!err) {
         throw err;
@@ -168,7 +169,7 @@
         };
 
         ++numFiles;
-        writeFile(fileOptions, function onWriteFileDone(err, evt, fileEntry) {
+        writeFile(fileOptions, function onWriteFileDone(err, fileEntry, evt) {
           if (!!err) {
             ++numFilesErrored;
             onFail(err);
@@ -177,7 +178,7 @@
           ++numFilesWritten;
           console.log('File written:', fileInfo,
             'numFilesWritten:', numFilesWritten,
-            'evt.target.localURL:', evt.target.localURL,
+            // 'evt.target.localURL:', evt.target.localURL,
             'fileEntry.toURL()', fileEntry.toURL()
             );
           checkComplete();
@@ -341,6 +342,20 @@
     });
   }
 
+  function _regular_getFileSystemRoot(onGotFileSystem) {
+    console.log('Initialising platform-specifc functions for regular cordova');
+    // console.log('getFileSystemRoot', dirPath);
+    global.requestFileSystem(global.LocalFileSystem.PERSISTENT, 0,
+      function onGotFileSytemPre(fileSys) {
+        onGotFileSystem(fileSys.root);
+      });
+  }
+
+  function _windows_getFileSystemRoot(onGotFileSystem) {
+    // console.log('getFileSystemRoot-windows', dirPath);
+    onGotFileSystem(global.Windows.Storage.ApplicationData.current.localFolder);
+  }
+
   function getDataFile(path, options, onGotFileEntry) {
     options = options || {};
     getFileSystemRoot(function onGotFileSytemRoot(fsRoot) {
@@ -358,12 +373,38 @@
         continueGetDataFile();
       }
       function continueGetDataFile() {
-        createFile(fsRoot, path, options, function onGotFileEntryImpl(fileEntry) {
+        getFile(fsRoot, path, options, function onGotFileEntryImpl(fileEntry) {
           // console.log('fileEntry:', fileEntry);
           onGotFileEntry(undefined, fileEntry);
         }, onFail);
       }
     });
+  }
+
+  function _regular_getFile(fsRoot, path, options, onGotFileEntry, onFailToGetFileEntry) {
+    fsRoot.getFile(path, options, onGotFileEntry, onFailToGetFileEntry);
+  }
+
+  function _windows_getFile(fsRoot, path, options, onGotFileEntry, onFailToGetFileEntry) {
+    path = path.replace( /\//g , '\\');
+    if (!!options.create) {
+      var windowsFlag;
+      if (!!options.exclusive) {
+        windowsFlag = global.Windows.Storage.CreationCollisionOption.failIfExists;
+      }
+      else {
+        windowsFlag = global.Windows.Storage.CreationCollisionOption.openIfExists;
+      }
+      fsRoot
+        .createFileAsync(path, windowsFlag)
+        .then(onGotFileEntry, onFailToGetFileEntry);
+    }
+    else {
+      //read
+      fsRoot.
+        getFileAsync(path)
+        .then(onGotFileEntry, onFailToGetFileEntry);
+    }
   }
 
   function writeFile(options, onDone) {
@@ -386,6 +427,33 @@
     }, onFail);
   }
 
+  function _regular_writeBlobToFile(fileEntry, blob, onDone) {
+    fileEntry.createWriter(function onWriterCreated(writer) {
+      writer.onwriteend = onWrote;
+      writer.write(blob);
+
+      function onWrote(evt) {
+        onDone(writer.error, fileEntry, evt);
+      }
+    }, onFail);
+  }
+
+  function _windows_writeBlobToFile(fileEntry, blob, onDone) {
+    var blobStream = blob.msDetachStream();
+    Windows.Storage.Streams.RandomAccessStream
+      .copyAsync(blobStream, fileEntry)
+      .then(function onWrote() {
+          fileEntry
+            .flushAsync()
+            .done(function onFlushed() {
+              blobStream.close();
+              fileEntry.close();
+              onDone(undefined, fileEntry);
+            }, onFail);
+        }, onFail);
+  }
+
+
   function readFile(options, onDone) {
     getDataFile(options.name, options.flags, function onGotFileEntry(err, fileEntry) {
       if (!!err) {
@@ -393,6 +461,67 @@
       }
       readFileImpl(fileEntry, options, onDone);
     }, onFail);
+  }
+
+  function _regular_readFileImpl(fileEntry, options, onDone) {
+    fileEntry.file(function onGotFile(file) {
+      var reader = new global.FileReader();
+      reader.onloadend = onRead;
+
+      var method;
+      switch (options.method) {
+        case 'readAsText':
+        case 'readAsDataURL':
+        case 'readAsBinaryString':
+        case 'readAsArrayBuffer':
+          method = options.method;
+          break;
+        default:
+          throw 'Unrecognised file reader method: '+ options.method;
+      }
+      reader[method](file);
+
+      function onRead(evt) {
+        if (!evt || !evt.target || !evt.target.result) {
+          onDone('No result after file read', undefined, evt);
+        }
+        else {
+          onDone(reader.error, evt.target.result, evt);
+        }
+      }
+    }, onFail);
+  }
+
+  function _windows_readFileImpl(fileEntry, options, onDone) {
+    var method;
+    switch (options.method) {
+      case 'readAsText':
+        method = 'readTextAsync';
+        break;
+      case 'readAsDataURL':
+        throw 'DataURL unsupported on Windows';
+      case 'readAsBinaryString':
+        throw 'BinaryString unsupported on Windows';
+      case 'readAsArrayBuffer':
+        method = 'readBufferAsync';
+        break;
+      default:
+        throw 'Unrecognised file reader method: '+ options.method;
+      }
+    Windows.Storage.FileIO
+      [method](fileEntry)
+      .then(function onRead(contents) {
+        if (method === 'readBufferAsync') {
+          var arrayBuffer = new Uint8Array(contents.length);
+          var dataReader = Windows.Storage.DataReader.fromBuffer(contents);
+          dataReader.readBytes(arrayBuffer);
+          dataReader.close();
+          onDone(undefined, arrayBuffer);
+        }
+        else {
+          onDone(undefined, contents);
+        }
+      }, onFail);
   }
 
   /**
@@ -428,6 +557,22 @@
       }
 
       mkdir(fsRoot, dirs.pop(), onCreateDirSuccess, onCreateDirFailure);
+  }
+
+  function _regular_mkdir(fsRoot, dirPath, onCreateDirSuccess, onCreateDirFailure) {
+    // console.log('mkdir', dirPath);
+    fsRoot.getDirectory(dirPath, {
+      create : true,
+      exclusive : false,
+    }, onCreateDirSuccess, onCreateDirFailure);
+  }
+
+  function _windows_mkdir(fsRoot, dirPath, onCreateDirSuccess, onCreateDirFailure) {
+    // console.log('mkdir-windows', dirPath);
+    dirPath = dirPath.replace( /\//g , '\\');
+    fsRoot
+      .createFolderAsync(dirPath, global.Windows.Storage.CreationCollisionOption.openIfExists)
+      .then(onCreateDirSuccess, onCreateDirFailure);
   }
 
   function constructTreeFromListOfDirectories(dirs) {
@@ -558,151 +703,26 @@
    */
 
   //NOTE this is the closest we get to #IFDEF style conditional compilation
-  var getFileSystemRoot, mkdir, createFile, writeBlobToFile, readFileImpl;
+  var getFileSystemRoot, getFile, writeBlobToFile, readFileImpl, mkdir;
   function initPlatformSpecificFunctions() {
     if (!!global.device &&
-        global.device.available &&
         typeof global.device.platform === 'string' &&
         global.device.platform.toLowerCase() === 'windows') {
+      console.log('Initialising platform-specifc functions for Windows-flavoured cordova');
       getFileSystemRoot = _windows_getFileSystemRoot;
-      mkdir = _windows_mkdir;
-      createFile = _windows_createFile;
+      getFile = _windows_getFile;
       writeBlobToFile = _windows_writeBlobToFile;
       readFileImpl = _windows_readFileImpl;
+      mkdir = _windows_mkdir;
     }
     else {
       getFileSystemRoot = _regular_getFileSystemRoot;
-      mkdir = _regular_mkdir;
-      createFile = _regular_createFile;
+      getFile = _regular_getFile;
       writeBlobToFile = _regular_writeBlobToFile;
       readFileImpl = _regular_readFileImpl;
+      mkdir = _regular_mkdir;
     }
   }
 
-  function _regular_getFileSystemRoot(onGotFileSystem) {
-    // console.log('getFileSystemRoot', dirPath);
-    global.requestFileSystem(global.LocalFileSystem.PERSISTENT, 0,
-      function onGotFileSytemPre(fileSys) {
-        onGotFileSystem(fileSys.root);
-      });
-  }
-
-  function _windows_getFileSystemRoot(onGotFileSystem) {
-    // console.log('getFileSystemRoot-windows', dirPath);
-    onGotFileSystem(global.Windows.Storage.ApplicationData.current.localFolder);
-  }
-
-  function _regular_mkdir(fsRoot, dirPath, onCreateDirSuccess, onCreateDirFailure) {
-    // console.log('mkdir', dirPath);
-    fsRoot.getDirectory(dirPath, {
-      create : true,
-      exclusive : false,
-    }, onCreateDirSuccess, onCreateDirFailure);
-  }
-
-  function _windows_mkdir(fsRoot, dirPath, onCreateDirSuccess, onCreateDirFailure) {
-    // console.log('mkdir-windows', dirPath);
-    fsRoot
-      .createFolderAsync(dirPath, global.Windows.Storage.CreationCollisionOption.openIfExists)
-      .then(onCreateDirSuccess, onCreateDirFailure);
-  }
-
-  function _regular_createFile(fsRoot, path, options, onGotFileEntry, onFailToGetFileEntry) {
-    fsRoot.getFile(path, options, onGotFileEntry, onFailToGetFileEntry);
-  }
-
-  function _windows_createFile(fsRoot, path, options, onGotFileEntry, onFailToGetFileEntry) {
-    if (!!options.create) {
-      var windowsFlag;
-      if (!!options.exclusive) {
-        windowsFlag = global.Windows.Storage.CreationCollisionOption.failIfExists;
-      }
-      else {
-        windowsFlag = global.Windows.Storage.CreationCollisionOption.openIfExists;
-      }
-      fsRoot
-        .createFileAsync(path, windowsFlag)
-        .then(onGotFileEntry, onFailToGetFileEntry);
-    }
-    else {
-      //read
-      fsRoot.
-        getFileAsync(path)
-        .then(onGotFileEntry, onFailToGetFileEntry);
-    }
-  }
-
-  function _regular_writeBlobToFile(fileEntry, blob, onDone) {
-    fileEntry.createWriter(function onWriterCreated(writer) {
-      writer.onwriteend = onWrote;
-      writer.write(blob);
-
-      function onWrote(evt) {
-        onDone(writer.error, evt, fileEntry);
-      }
-    }, onFail);
-  }
-
-  function _windows_writeBlobToFile(fileEntry, blob, onDone) {
-    var blobStream = blob.msDetachStream();
-    Windows.Storage.Streams.RandomAccessStream
-      .copyAsync(blobStream, fileEntry)
-      .then(function onWrote() {
-          fileEntry
-            .flushAsync()
-            .done(function onFlushed() {
-              blobStream.close();
-              fileEntry.close();
-              onDone(undefined, { target: fileEntry }, fileEntry);
-            }, onFail);
-        }, onFail);
-  }
-
-  function _regular_readFileImpl(fileEntry, options, onDone) {
-    fileEntry.file(function onGotFile(file) {
-      var reader = new global.FileReader();
-      reader.onloadend = onRead;
-
-      var method;
-      switch (options.method) {
-        case 'readAsText':
-        case 'readAsDataURL':
-        case 'readAsBinaryString':
-        case 'readAsArrayBuffer':
-          method = options.method;
-          break;
-        default:
-          throw 'Unrecognised file reader method: '+ options.method;
-      }
-      reader[method](file);
-
-      function onRead(evt) {
-        onDone(reader.error, evt);
-      }
-    }, onFail);
-  }
-
-  function _windows_readFileImpl(fileEntry, options, onDone) {
-    var method;
-    switch (options.method) {
-      case 'readAsText':
-        method = 'readTextAsync';
-        break;
-      case 'readAsDataURL':
-        throw 'DataURL unsupported on Windows';
-      case 'readAsBinaryString':
-        throw 'BinaryString unsupported on Windows';
-      case 'readAsArrayBuffer':
-        method = 'ReadBufferAsync';
-        break;
-      default:
-        throw 'Unrecognised file reader method: '+ options.method;
-      }
-    Windows.Storage.FileIO
-      [method](fileEntry)
-      .then(function onRead(contents) {
-        onDone(undefined, contents);
-      }, onFail);
-  }
 })(this);
 
