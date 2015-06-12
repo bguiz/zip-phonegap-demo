@@ -292,6 +292,9 @@
 
       var writer = getZipWriter(options, entry);
       entry.getData(writer, function onGotDataForZipEntry(data) {
+        if (data.size !== entry.uncompressedSize) {
+          throw 'Inflated data is not the right size';
+        }
         onInflate(undefined, false, {
           fileEntry: entry,
           contents: data,
@@ -536,7 +539,7 @@
       .then(function onRead(contents) {
         if (method === 'readBufferAsync') {
           var arrayBuffer = new Uint8Array(contents.length);
-          var dataReader = Windows.Storage.DataReader.fromBuffer(contents);
+          var dataReader = Windows.Storage.Streams.DataReader.fromBuffer(contents);
           dataReader.readBytes(arrayBuffer);
           dataReader.close();
           onDone(undefined, arrayBuffer);
@@ -698,20 +701,20 @@
     return reader;
   }
 
-  function getZipWriter(options, fileEntry) {
+  function getZipWriter(options, zipEntry) {
     var writer;
     switch (options.writerType) {
       case 'TextWriter':
         writer = new zip.TextWriter();
         break;
       case 'BlobWriter':
-        writer = new zip.BlobWriter(zip.getMimeType(fileEntry.fileName));
+        writer = new zip.BlobWriter(zip.getMimeType(zipEntry.fileName));
         break;
       case 'FileWriter':
-        writer = new zip.FileWriter(fileEntry);
+        writer = new zip.FileWriter(options.writerFileEntry);
         break;
       case 'Data64URIWriter':
-        writer = new zip.Data64URIWriter(zip.getMimeType(fileEntry.fileName));
+        writer = new zip.Data64URIWriter(zip.getMimeType(zipEntry.fileName));
         break;
       default:
         throw 'Unrecognised zip writer type: '+options.writerType;
