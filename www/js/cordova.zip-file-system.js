@@ -41,76 +41,100 @@
 
   function downloadAndExtractZipToFolder(options, onDone) {
     console.log('downloadAndExtractZip', options);
+    // Ultimately calls `extractZipToFolder()`
 
     if (options.readerUrl) {
-      var downloadFileOnlyName = (options.readerUrl.replace( /^.*\// , ''));
-      var downloadFilePath = options.downloadFolder+'/'+downloadFileOnlyName;
-      if (typeof options.downloadCachedUntil === 'number' &&
-          Date.now() < options.downloadCachedUntil) {
+      if (!!options.cdnStyle) {
+        // Let's say `readerUrl` is `http://cdn.com/foo/bar/baz.zip`
+        // and `downloadFolder` is `cdn-zipped`
+        // and `extractFolder` is `cdn-unzipped`;
+        // the file should be downloaded to `cdn-zipped/cdn.com/foo/bar/baz.zip`
+        // the file should be extracted to `cdn-unzipped/cdn.com/foo/bar/baz.zip/*`
+        options.downloadFilePath = options.downloadFolder+'/'+(options.readerUrl.replace( /^[^\:]+\:\/\// , ''));
+        options.extractFolder = options.extractFolder+'/'+options.downloadFilePath;
+      }
+      else {
+        // If not CDN style, file is downloaded directly to the `downloadFolder`
+        // and unzipped directly in the `extractFolder`
+        var downloadFileOnlyName = (options.readerUrl.replace( /^.*\// , ''));
+        options.downloadFilePath = options.downloadFolder+'/'+downloadFileOnlyName;
+      }
+
+      var attemptUseCache =
+        (typeof options.downloadCachedUntil !== 'number') ||
+        (typeof options.downloadCachedUntil === 'number' &&
+          Date.now() < options.downloadCachedUntil);
+      if (attemptUseCache) {
         // The current time is earlier than the cached date
         // So simply find the existing one and re-use it.
         // If not found in `options.downloadFolder`, however, we have to download it
-        readFile({
-          name: downloadFilePath,
-          flags: {
-            create: false,
-            exclusive: false,
-          },
-          method: 'readAsArrayBuffer',
-        }, function onReadFile(err, contents) {
-          if (!!err || !contents) {
-            console.log('re-use cached file failed for', downloadFilePath);
-            downloadTheFile();
-          }
-          else {
-            console.log('re-use cached file for', downloadFilePath);
-            var blob = new global.Blob([contents], { type: zip.getMimeType(downloadFilePath) });
-            options.readerBlob = blob;
-            options.readerType = 'BlobReader';
-            options.readerUrl = undefined;
-            extractZipToFolder(options, onDone);
-          }
-        });
+        attemptToGetFileFromCache(options, onDone);
       }
       else {
-        downloadTheFile();
+        downloadFileAsBlobAndPersist(options, onDone);
       }
-
     }
     else {
       console.log('downloadAndExtractZipToFolder called without options.readerUrl');
       extractZipToFolder(options, onDone);
     }
+  }
 
-    function downloadTheFile() {
-        // So we download the file
-        downloadUrlAsBlob(options.readerUrl, function onGotBlob(err, blob) {
-          if (!!err) {
-            onFail(err);
+  function attemptToGetFileFromCache(options, onDone) {
+    readFile({
+      name: options.downloadFilePath,
+      flags: {
+        create: false,
+        exclusive: false,
+      },
+      method: 'readAsArrayBuffer',
+    }, function onReadFile(err, contents) {
+      if (!!err || !contents) {
+        console.log('re-use cached file failed for', options.downloadFilePath);
+        downloadFileAsBlobAndPersist(options, onDone);
+      }
+      else {
+        console.log('re-use cached file for', options.downloadFilePath);
+        var blob = new global.Blob([contents], { type: zip.getMimeType(options.downloadFilePath) });
+        options.readerBlob = blob;
+        options.readerType = 'BlobReader';
+        options.readerUrl = undefined;
+        extractZipToFolder(options, onDone);
+      }
+    });
+  }
+
+  function downloadFileAsBlobAndPersist(options, onDone, onPersist) {
+    // So we download the file
+    downloadUrlAsBlob(options.readerUrl, function onGotBlob(err, blob) {
+      if (!!err) {
+        onFail(err);
+      }
+
+      // extraction will continue as per usual route, however,
+      // in the background, also persist this file to disk
+      if (options.downloadFolder) {
+        writeFile({
+          name: options.downloadFilePath,
+          blob: blob,
+          flags: {
+            create: true,
+            exclusive: false,
+            mkdirp: true,
+          },
+        }, function onSavedDownload(err, fileEntry, evt) {
+          console.log('onSavedDownload', err, fileEntry, evt);
+          if (typeof onPersist === 'function') {
+            onPersist(err, fileEntry);
           }
-
-          // extraction will continue as per usual route, however,
-          // in the background, also persist this file to disk
-          if (options.downloadFolder) {
-            writeFile({
-              name: downloadFilePath,
-              blob: blob,
-              flags: {
-                create: true,
-                exclusive: false,
-                mkdirp: true,
-              },
-            }, function onSavedDownload(err, fileEntry, evt) {
-              console.log('onSavedDownload', err, fileEntry, evt);
-            });
-          }
-
-          options.readerType = 'BlobReader';
-          options.readerUrl = undefined;
-          options.readerBlob = blob;
-          extractZipToFolder(options, onDone);
         });
       }
+
+      options.readerType = 'BlobReader';
+      options.readerUrl = undefined;
+      options.readerBlob = blob;
+      extractZipToFolder(options, onDone);
+    });
   }
 
   /**
@@ -343,7 +367,6 @@
   }
 
   function _regular_getFileSystemRoot(onGotFileSystem) {
-    console.log('Initialising platform-specifc functions for regular cordova');
     // console.log('getFileSystemRoot', dirPath);
     global.requestFileSystem(global.LocalFileSystem.PERSISTENT, 0,
       function onGotFileSytemPre(fileSys) {
@@ -376,7 +399,7 @@
         getFile(fsRoot, path, options, function onGotFileEntryImpl(fileEntry) {
           // console.log('fileEntry:', fileEntry);
           onGotFileEntry(undefined, fileEntry);
-        }, onFail);
+        }, onGotFileEntry);
       }
     });
   }
@@ -716,6 +739,7 @@
       mkdir = _windows_mkdir;
     }
     else {
+      console.log('Initialising platform-specific functions for regular cordova');
       getFileSystemRoot = _regular_getFileSystemRoot;
       getFile = _regular_getFile;
       writeBlobToFile = _regular_writeBlobToFile;
