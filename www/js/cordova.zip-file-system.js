@@ -203,7 +203,7 @@
           console.log('File written:', fileInfo,
             'numFilesWritten:', numFilesWritten,
             // 'evt.target.localURL:', evt.target.localURL,
-            'fileEntry.toURL()', fileEntry.toURL()
+            'urlOfFileEntry(fileEntry)', urlOfFileEntry(fileEntry)
             );
           checkComplete();
         });
@@ -369,6 +369,14 @@
     });
   }
 
+  function _regular_urlOfFileEntry(fileEntry) {
+    return fileEntry.toURL();
+  }
+
+  function _windows_urlOfFileEntry(fileEntry) {
+    return fileEntry.path;
+  }
+
   function _regular_getFileSystemRoot(onGotFileSystem) {
     // console.log('getFileSystemRoot', dirPath);
     global.requestFileSystem(global.LocalFileSystem.PERSISTENT, 0,
@@ -466,17 +474,21 @@
 
   function _windows_writeBlobToFile(fileEntry, blob, onDone) {
     var blobStream = blob.msDetachStream();
-    Windows.Storage.Streams.RandomAccessStream
-      .copyAsync(blobStream, fileEntry)
-      .then(function onWrote() {
-          fileEntry
-            .flushAsync()
-            .done(function onFlushed() {
-              blobStream.close();
-              fileEntry.close();
-              onDone(undefined, fileEntry);
-            }, onFail);
-        }, onFail);
+    fileEntry
+      .openAsync(Windows.Storage.FileAccessMode.readWrite)
+      .then(function openedFileForWriting(outFile) {
+        Windows.Storage.Streams.RandomAccessStream
+          .copyAsync(blobStream, outFile)
+          .then(function onFileWritten() {
+            outFile
+              .flushAsync()
+              .done(function onFileFlushed() {
+                blobStream.close();
+                outFile.close();
+                onDone(undefined, fileEntry);
+              }, onFail);
+          }, onFail);
+      }, onFail);
   }
 
 
@@ -729,12 +741,14 @@
    */
 
   //NOTE this is the closest we get to #IFDEF style conditional compilation
-  var getFileSystemRoot, getFile, writeBlobToFile, readFileImpl, mkdir;
+  var urlOfFileEntry, getFileSystemRoot, getFile, writeBlobToFile, readFileImpl, mkdir;
+
   function initPlatformSpecificFunctions() {
     if (!!global.device &&
         typeof global.device.platform === 'string' &&
         global.device.platform.toLowerCase() === 'windows') {
       console.log('Initialising platform-specifc functions for Windows-flavoured cordova');
+      urlOfFileEntry = _windows_urlOfFileEntry;
       getFileSystemRoot = _windows_getFileSystemRoot;
       getFile = _windows_getFile;
       writeBlobToFile = _windows_writeBlobToFile;
@@ -743,6 +757,7 @@
     }
     else {
       console.log('Initialising platform-specific functions for regular cordova');
+      urlOfFileEntry = _regular_urlOfFileEntry;
       getFileSystemRoot = _regular_getFileSystemRoot;
       getFile = _regular_getFile;
       writeBlobToFile = _regular_writeBlobToFile;
