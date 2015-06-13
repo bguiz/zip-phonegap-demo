@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 (function(global) {
   if (!global.zip) {
@@ -108,7 +108,8 @@
     // So we download the file
     downloadUrlAsBlob(options.readerUrl, function onGotBlob(err, blob) {
       if (!!err) {
-        onFail(err);
+          onDone(err);
+          return
       }
 
       // extraction will continue as per usual route, however,
@@ -434,10 +435,21 @@
         .then(onGotFileEntry, onFailToGetFileEntry);
     }
     else {
-      //read
-      fsRoot.
-        getFileAsync(path)
-        .then(onGotFileEntry, onFailToGetFileEntry);
+        //read
+            fsRoot
+                .tryGetItemAsync(path)
+                .done(function fileExists(file) {
+                    if (!!file) {
+                        fsRoot.getFileAsync(path).then(onGotFileEntry, onFailToGetFileEntry);
+                    }
+                    else {
+                        onFailToGetFileEntry('No file found at path: ' + path);
+                    }
+                }, onFailToGetFileEntry);
+       //     fsRoot.
+       // getFileAsync(path)
+       // .then(onGotFileEntry, onFailToGetFileEntry);
+      
     }
   }
 
@@ -473,21 +485,23 @@
   }
 
   function _windows_writeBlobToFile(fileEntry, blob, onDone) {
-    var blobStream = blob.msDetachStream();
+      var blobStream = blob.msDetachStream();
+      var outputFile;
     fileEntry
       .openAsync(Windows.Storage.FileAccessMode.readWrite)
       .then(function openedFileForWriting(outFile) {
-        Windows.Storage.Streams.RandomAccessStream
-          .copyAsync(blobStream, outFile)
-          .then(function onFileWritten() {
-            outFile
-              .flushAsync()
-              .done(function onFileFlushed() {
-                blobStream.close();
-                outFile.close();
-                onDone(undefined, fileEntry);
-              }, onFail);
-          }, onFail);
+          outputFile = outFile;
+        return Windows.Storage.Streams.RandomAccessStream
+          .copyAsync(blobStream, outFile);
+      }, onFail)
+      .then(function onFileWritten() {
+          return outputFile
+            .flushAsync();
+      }, onFail)
+      .then(function onFileFlushed() {
+          blobStream.close();
+          outputFile.close();
+          onDone(undefined, fileEntry);
       }, onFail);
   }
 
@@ -495,10 +509,11 @@
   function readFile(options, onDone) {
     getDataFile(options.name, options.flags, function onGotFileEntry(err, fileEntry) {
       if (!!err) {
-        onFail(err);
+          onDone(err);
+          return;
       }
       readFileImpl(fileEntry, options, onDone);
-    }, onFail);
+    }, onDone);
   }
 
   function _regular_readFileImpl(fileEntry, options, onDone) {
@@ -527,7 +542,7 @@
           onDone(reader.error, evt.target.result, evt);
         }
       }
-    }, onFail);
+    }, onDone);
   }
 
   function _windows_readFileImpl(fileEntry, options, onDone) {
@@ -537,7 +552,7 @@
         method = 'readTextAsync';
         break;
       case 'readAsDataURL':
-        throw 'DataURL unsupported on Windows';
+        throw 'DataURL unsupported on Windows'; 
       case 'readAsBinaryString':
         throw 'BinaryString unsupported on Windows';
       case 'readAsArrayBuffer':
@@ -559,7 +574,7 @@
         else {
           onDone(undefined, contents);
         }
-      }, onFail);
+      }, onDone);
   }
 
   /**
