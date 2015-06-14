@@ -32,13 +32,6 @@
 
   global.CordovaZipFileSystem = CordovaZipFileSystem;
 
-  // Generic error handler
-  //TODO rpelace usages of this with specific error handler for each usage
-  function onFail(err) {
-    console.log(err);
-    throw err;
-  }
-
   function downloadAndExtractZipToFolder(options, onDone) {
     console.log('downloadAndExtractZip', options);
     // Ultimately calls `extractZipToFolder()`
@@ -50,8 +43,9 @@
         // and `extractFolder` is `cdn-unzipped`;
         // the file should be downloaded to `cdn-zipped/cdn.com/foo/bar/baz.zip`
         // the file should be extracted to `cdn-unzipped/cdn.com/foo/bar/baz.zip/*`
-        options.downloadFilePath = options.downloadFolder+'/'+(options.readerUrl.replace( /^[^\:]+\:\/\// , ''));
-        options.extractFolder = options.extractFolder+'/'+options.downloadFilePath;
+        var filePath = options.readerUrl.replace( /^[^\:]+\:\/\// , '');
+        options.extractFolder = options.extractFolder+'/'+filePath;
+        options.downloadFilePath = options.downloadFolder+'/'+filePath;
       }
       else {
         // If not CDN style, file is downloaded directly to the `downloadFolder`
@@ -65,7 +59,8 @@
         (typeof options.downloadCachedUntil === 'number' &&
           Date.now() < options.downloadCachedUntil);
       if (attemptUseCache) {
-        // The current time is earlier than the cached date
+        // The current time is earlier than the cached date,
+        // Or none has been specified (so always use cache) 
         // So simply find the existing one and re-use it.
         // If not found in `options.downloadFolder`, however, we have to download it
         attemptToGetFileFromCache(options, onDone);
@@ -90,7 +85,7 @@
       method: 'readAsArrayBuffer',
     }, function onReadFile(err, contents) {
       if (!!err || !contents) {
-        console.log('re-use cached file failed for', options.downloadFilePath);
+        console.log('failed to re-use cached file for', options.downloadFilePath);
         downloadFileAsBlobAndPersist(options, onDone);
       }
       else {
@@ -108,8 +103,8 @@
     // So we download the file
     downloadUrlAsBlob(options.readerUrl, function onGotBlob(err, blob) {
       if (!!err) {
-          onDone(err);
-          return
+        onDone(err);
+        return
       }
 
       // extraction will continue as per usual route, however,
@@ -177,7 +172,8 @@
 
     extractZip(zipOptions, function onExtractZipDone(err, allDone, fileInfo) {
       if (!!err) {
-        throw err;
+        onDone(err);
+        return;
       }
       if (!allDone) {
         // Signalled that a single file in the zip file has been inflated, and here it is
@@ -197,7 +193,8 @@
         writeFile(fileOptions, function onWriteFileDone(err, fileEntry, evt) {
           if (!!err) {
             ++numFilesErrored;
-            onFail(err);
+            onDone(err);
+            return;
           }
 
           ++numFilesWritten;
@@ -363,11 +360,7 @@
           zipInflateEntries(options, entries, onDone);
         }
       });
-    }, function onZipReaderCreateFailed(err) {
-      if (!!err) {
-        onFail(err);
-      }
-    });
+    }, onDone);
   }
 
   function _regular_urlOfFileEntry(fileEntry) {
