@@ -172,6 +172,7 @@
 
       extractFolder: options.extractFolder,
       preemptiveTreeMkdir: true,
+      processEmptyZipEntry: options.processEmptyZipEntry,
     };
 
     extractZip(zipOptions, function onExtractZipDone(err, allDone, fileInfo) {
@@ -247,6 +248,10 @@
           // Success
           console.log('success downloadUrlAsBlob', xhr.response);
           var blob = new global.Blob([xhr.response], { type: zip.getMimeType(url) });
+          if (!blob || !blob.size) {
+            onDone('Downloaded blob is empty');
+            return;
+          }
           onDone(undefined, blob);
         }
         else {
@@ -286,6 +291,30 @@
         return;
       }
       var entry = entries[entryIndex];
+
+      var processEmptyZipEntry;
+      if (typeof options.processEmptyZipEntry === 'function') {
+        processEmptyZipEntry = options.processEmptyZipEntry;
+      }
+      else {
+        processEmptyZipEntry = defaultProcessEmptyZipEntry;
+      }
+
+      if (entry.uncompressedSize === 0) {
+        // This is an empty file - allow overwrite the file contents
+        ++entryIndex;
+        ++concurrentEntries;
+        // `concurrentCost` impact is estimated to be negligible
+        processEmptyZipEntry(entry, function onProcessedEmptyZipEntry(err, data) {
+          onInflate(undefined, false, {
+            fileEntry: entry,
+            contents: data,
+          });
+          completeSingleFile();
+        });
+        return;
+      }
+
       var estimatedSizeCost =
         entry.uncompressedSize * (entry.uncompressedSize / entry.compressedSize);
       ++entryIndex;
@@ -301,17 +330,21 @@
           fileEntry: entry,
           contents: data,
         });
-
-        --concurrentEntries;
-        --resultCount;
+        
         concurrentCost -= estimatedSizeCost;
-        if (resultCount < 1) {
-          onInflate(undefined, true);
-        }
-        else {
-          doRateLimitedNextEntries();
-        }
+        completeSingleFile();
       });
+    }
+
+    function completeSingleFile() {
+      --concurrentEntries;
+      --resultCount;
+      if (resultCount < 1) {
+        onInflate(undefined, true);
+      }
+      else {
+        doRateLimitedNextEntries();
+      }
     }
 
     // In V8, if we spawn too many CPU intensive callback functions
@@ -451,19 +484,23 @@
   }
 
   function writeFile(options, onDone) {
+    var blob;
+    if (options.blob) {
+      blob = options.blob;
+    }
+    else if (options.content && options.mimeType) {
+      blob = new global.Blob([options.contents], { type: options.mimeType });
+    }
+    else {
+      onDone('Cannot create file: Invalid options');
+    }
+    if (!blob || !blob.size) {
+      onDone('Cannot create file: Trying to write an empty blob');
+    }
+
     getDataFile(options.name, options.flags, function onGotFileEntry(err, fileEntry) {
       if (!!err) {
         onFail(err);
-      }
-      var blob;
-      if (options.blob) {
-        blob = options.blob;
-      }
-      else if (options.content && options.mimeType) {
-        blob = new global.Blob([options.contents], { type: options.mimeType });
-      }
-      else {
-        throw 'Cannot create file, invalid options';
       }
 
       writeBlobToFile(fileEntry, blob, onDone);
@@ -595,7 +632,8 @@
       function mkdirSub() {
         if (dirs.length > 0) {
           mkdir(fsRoot, dirs.pop(), onCreateDirSuccess, onCreateDirFailure);
-        } else {
+        }
+        else {
           console.log('mkdir -p OK', path);
           onDone(undefined, path);
         }
@@ -750,6 +788,20 @@
         throw 'Unrecognised zip writer type: '+options.writerType;
     }
     return writer;
+  }
+
+  function defaultProcessEmptyZipEntry(entry, onProcessedEmptyZipEntry) {
+    var replacementContents;
+    var mimeType = zip.getMimeType(entry.filename);
+    switch (mimeType) {
+      case 'text/html':
+      case 'application/xml':
+        replacementContents = '<!-- ' + entry.filename + ' -->';
+        break;
+      default:
+        replacementContents = '// ' + entry.filename + '\n';
+    }
+    onProcessedEmptyZipEntry(undefined, new Blob([replacementContents], mimeType));
   }
 
   /*
