@@ -107,29 +107,33 @@
         return
       }
 
-      // extraction will continue as per usual route, however,
-      // in the background, also persist this file to disk
-      if (options.downloadFolder) {
-        writeFile({
-          name: options.downloadFilePath,
-          blob: blob,
-          flags: {
-            create: true,
-            exclusive: false,
-            mkdirp: true,
-          },
-        }, function onSavedDownload(err, fileEntry, evt) {
-          console.log('onSavedDownload', err, fileEntry, evt);
-          if (typeof onPersist === 'function') {
-            onPersist(err, fileEntry);
-          }
-        });
-      }
-
+      // Extract the blob while still in memory
       options.readerType = 'BlobReader';
       options.readerUrl = undefined;
       options.readerBlob = blob;
-      extractZipToFolder(options, onDone);
+      extractZipToFolder(options, completeBlob);
+
+      function completeBlob(err, data) {
+        if (!!err) {
+          onDone(err);
+          return;
+        }
+        if (options.downloadFolder) {
+          // After file has been extracted, persist the original file back to disk
+          writeFile({
+            name: options.downloadFilePath,
+            blob: blob,
+            flags: {
+              create: true,
+              exclusive: false,
+              mkdirp: true,
+            },
+          }, onDone);
+        }
+        else {
+          onDone(err, data);
+        }
+      }
     });
   }
 
@@ -467,6 +471,9 @@
   }
 
   function _regular_writeBlobToFile(fileEntry, blob, onDone) {
+    if (!blob || !blob.size) {
+        onDone('Empty blob');
+    }
     fileEntry.createWriter(function onWriterCreated(writer) {
       writer.onwriteend = onWrote;
       writer.write(blob);
@@ -478,8 +485,11 @@
   }
 
   function _windows_writeBlobToFile(fileEntry, blob, onDone) {
-      var blobStream = blob.msDetachStream();
-      var outputFile;
+    if (!blob || !blob.size) {
+        onDone('Empty blob');
+    }
+    var blobStream = blob.msDetachStream();
+    var outputFile;
     fileEntry
       .openAsync(Windows.Storage.FileAccessMode.readWrite)
       .then(function openedFileForWriting(outFile) {
