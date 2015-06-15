@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 (function(global) {
   if (!global.zip) {
@@ -32,13 +32,6 @@
 
   global.CordovaZipFileSystem = CordovaZipFileSystem;
 
-  // Generic error handler
-  //TODO rpelace usages of this with specific error handler for each usage
-  function onFail(err) {
-    console.log(err);
-    throw err;
-  }
-
   function downloadAndExtractZipToFolder(options, onDone) {
     console.log('downloadAndExtractZip', options);
     // Ultimately calls `extractZipToFolder()`
@@ -50,8 +43,9 @@
         // and `extractFolder` is `cdn-unzipped`;
         // the file should be downloaded to `cdn-zipped/cdn.com/foo/bar/baz.zip`
         // the file should be extracted to `cdn-unzipped/cdn.com/foo/bar/baz.zip/*`
-        options.downloadFilePath = options.downloadFolder+'/'+(options.readerUrl.replace( /^[^\:]+\:\/\// , ''));
-        options.extractFolder = options.extractFolder+'/'+options.downloadFilePath;
+        var filePath = options.readerUrl.replace( /^[^\:]+\:\/\// , '');
+        options.extractFolder = options.extractFolder+'/'+filePath;
+        options.downloadFilePath = options.downloadFolder+'/'+filePath;
       }
       else {
         // If not CDN style, file is downloaded directly to the `downloadFolder`
@@ -65,7 +59,8 @@
         (typeof options.downloadCachedUntil === 'number' &&
           Date.now() < options.downloadCachedUntil);
       if (attemptUseCache) {
-        // The current time is earlier than the cached date
+        // The current time is earlier than the cached date,
+        // Or none has been specified (so always use cache) 
         // So simply find the existing one and re-use it.
         // If not found in `options.downloadFolder`, however, we have to download it
         attemptToGetFileFromCache(options, onDone);
@@ -90,7 +85,7 @@
       method: 'readAsArrayBuffer',
     }, function onReadFile(err, contents) {
       if (!!err || !contents) {
-        console.log('re-use cached file failed for', options.downloadFilePath);
+        console.log('failed to re-use cached file for', options.downloadFilePath);
         downloadFileAsBlobAndPersist(options, onDone);
       }
       else {
@@ -108,32 +103,37 @@
     // So we download the file
     downloadUrlAsBlob(options.readerUrl, function onGotBlob(err, blob) {
       if (!!err) {
-        onFail(err);
+        onDone(err);
+        return
       }
 
-      // extraction will continue as per usual route, however,
-      // in the background, also persist this file to disk
-      if (options.downloadFolder) {
-        writeFile({
-          name: options.downloadFilePath,
-          blob: blob,
-          flags: {
-            create: true,
-            exclusive: false,
-            mkdirp: true,
-          },
-        }, function onSavedDownload(err, fileEntry, evt) {
-          console.log('onSavedDownload', err, fileEntry, evt);
-          if (typeof onPersist === 'function') {
-            onPersist(err, fileEntry);
-          }
-        });
-      }
-
+      // Extract the blob while still in memory
       options.readerType = 'BlobReader';
       options.readerUrl = undefined;
       options.readerBlob = blob;
-      extractZipToFolder(options, onDone);
+      extractZipToFolder(options, completeBlob);
+
+      function completeBlob(err, data) {
+        if (!!err) {
+          onDone(err);
+          return;
+        }
+        if (options.downloadFolder) {
+          // After file has been extracted, persist the original file back to disk
+          writeFile({
+            name: options.downloadFilePath,
+            blob: blob,
+            flags: {
+              create: true,
+              exclusive: false,
+              mkdirp: true,
+            },
+          }, onDone);
+        }
+        else {
+          onDone(err, data);
+        }
+      }
     });
   }
 
@@ -172,11 +172,13 @@
 
       extractFolder: options.extractFolder,
       preemptiveTreeMkdir: true,
+      processEmptyZipEntry: options.processEmptyZipEntry,
     };
 
     extractZip(zipOptions, function onExtractZipDone(err, allDone, fileInfo) {
       if (!!err) {
-        throw err;
+        onDone(err);
+        return;
       }
       if (!allDone) {
         // Signalled that a single file in the zip file has been inflated, and here it is
@@ -196,7 +198,8 @@
         writeFile(fileOptions, function onWriteFileDone(err, fileEntry, evt) {
           if (!!err) {
             ++numFilesErrored;
-            onFail(err);
+            onDone(err);
+            return;
           }
 
           ++numFilesWritten;
@@ -245,6 +248,10 @@
           // Success
           console.log('success downloadUrlAsBlob', xhr.response);
           var blob = new global.Blob([xhr.response], { type: zip.getMimeType(url) });
+          if (!blob || !blob.size) {
+            onDone('Downloaded blob is empty');
+            return;
+          }
           onDone(undefined, blob);
         }
         else {
@@ -284,6 +291,30 @@
         return;
       }
       var entry = entries[entryIndex];
+
+      var processEmptyZipEntry;
+      if (typeof options.processEmptyZipEntry === 'function') {
+        processEmptyZipEntry = options.processEmptyZipEntry;
+      }
+      else {
+        processEmptyZipEntry = defaultProcessEmptyZipEntry;
+      }
+
+      if (entry.uncompressedSize === 0) {
+        // This is an empty file - allow overwrite the file contents
+        ++entryIndex;
+        ++concurrentEntries;
+        // `concurrentCost` impact is estimated to be negligible
+        processEmptyZipEntry(entry, function onProcessedEmptyZipEntry(err, data) {
+          onInflate(undefined, false, {
+            fileEntry: entry,
+            contents: data,
+          });
+          completeSingleFile();
+        });
+        return;
+      }
+
       var estimatedSizeCost =
         entry.uncompressedSize * (entry.uncompressedSize / entry.compressedSize);
       ++entryIndex;
@@ -299,17 +330,21 @@
           fileEntry: entry,
           contents: data,
         });
-
-        --concurrentEntries;
-        --resultCount;
+        
         concurrentCost -= estimatedSizeCost;
-        if (resultCount < 1) {
-          onInflate(undefined, true);
-        }
-        else {
-          doRateLimitedNextEntries();
-        }
+        completeSingleFile();
       });
+    }
+
+    function completeSingleFile() {
+      --concurrentEntries;
+      --resultCount;
+      if (resultCount < 1) {
+        onInflate(undefined, true);
+      }
+      else {
+        doRateLimitedNextEntries();
+      }
     }
 
     // In V8, if we spawn too many CPU intensive callback functions
@@ -362,11 +397,7 @@
           zipInflateEntries(options, entries, onDone);
         }
       });
-    }, function onZipReaderCreateFailed(err) {
-      if (!!err) {
-        onFail(err);
-      }
-    });
+    }, onDone);
   }
 
   function _regular_urlOfFileEntry(fileEntry) {
@@ -434,27 +465,42 @@
         .then(onGotFileEntry, onFailToGetFileEntry);
     }
     else {
-      //read
-      fsRoot.
-        getFileAsync(path)
-        .then(onGotFileEntry, onFailToGetFileEntry);
+        //read
+            fsRoot
+                .tryGetItemAsync(path)
+                .done(function fileExists(file) {
+                    if (!!file) {
+                        fsRoot.getFileAsync(path).then(onGotFileEntry, onFailToGetFileEntry);
+                    }
+                    else {
+                        onFailToGetFileEntry('No file found at path: ' + path);
+                    }
+                }, onFailToGetFileEntry);
+       //     fsRoot.
+       // getFileAsync(path)
+       // .then(onGotFileEntry, onFailToGetFileEntry);
+      
     }
   }
 
   function writeFile(options, onDone) {
+    var blob;
+    if (options.blob) {
+      blob = options.blob;
+    }
+    else if (options.content && options.mimeType) {
+      blob = new global.Blob([options.contents], { type: options.mimeType });
+    }
+    else {
+      onDone('Cannot create file: Invalid options');
+    }
+    if (!blob || !blob.size) {
+      onDone('Cannot create file: Trying to write an empty blob');
+    }
+
     getDataFile(options.name, options.flags, function onGotFileEntry(err, fileEntry) {
       if (!!err) {
         onFail(err);
-      }
-      var blob;
-      if (options.blob) {
-        blob = options.blob;
-      }
-      else if (options.content && options.mimeType) {
-        blob = new global.Blob([options.contents], { type: options.mimeType });
-      }
-      else {
-        throw 'Cannot create file, invalid options';
       }
 
       writeBlobToFile(fileEntry, blob, onDone);
@@ -462,6 +508,9 @@
   }
 
   function _regular_writeBlobToFile(fileEntry, blob, onDone) {
+    if (!blob || !blob.size) {
+        onDone('Empty blob');
+    }
     fileEntry.createWriter(function onWriterCreated(writer) {
       writer.onwriteend = onWrote;
       writer.write(blob);
@@ -473,21 +522,26 @@
   }
 
   function _windows_writeBlobToFile(fileEntry, blob, onDone) {
+    if (!blob || !blob.size) {
+        onDone('Empty blob');
+    }
     var blobStream = blob.msDetachStream();
+    var outputFile;
     fileEntry
       .openAsync(Windows.Storage.FileAccessMode.readWrite)
       .then(function openedFileForWriting(outFile) {
-        Windows.Storage.Streams.RandomAccessStream
-          .copyAsync(blobStream, outFile)
-          .then(function onFileWritten() {
-            outFile
-              .flushAsync()
-              .done(function onFileFlushed() {
-                blobStream.close();
-                outFile.close();
-                onDone(undefined, fileEntry);
-              }, onFail);
-          }, onFail);
+          outputFile = outFile;
+        return Windows.Storage.Streams.RandomAccessStream
+          .copyAsync(blobStream, outFile);
+      }, onFail)
+      .then(function onFileWritten() {
+          return outputFile
+            .flushAsync();
+      }, onFail)
+      .then(function onFileFlushed() {
+          blobStream.close();
+          outputFile.close();
+          onDone(undefined, fileEntry);
       }, onFail);
   }
 
@@ -495,10 +549,11 @@
   function readFile(options, onDone) {
     getDataFile(options.name, options.flags, function onGotFileEntry(err, fileEntry) {
       if (!!err) {
-        onFail(err);
+          onDone(err);
+          return;
       }
       readFileImpl(fileEntry, options, onDone);
-    }, onFail);
+    }, onDone);
   }
 
   function _regular_readFileImpl(fileEntry, options, onDone) {
@@ -527,7 +582,7 @@
           onDone(reader.error, evt.target.result, evt);
         }
       }
-    }, onFail);
+    }, onDone);
   }
 
   function _windows_readFileImpl(fileEntry, options, onDone) {
@@ -537,7 +592,7 @@
         method = 'readTextAsync';
         break;
       case 'readAsDataURL':
-        throw 'DataURL unsupported on Windows';
+        throw 'DataURL unsupported on Windows'; 
       case 'readAsBinaryString':
         throw 'BinaryString unsupported on Windows';
       case 'readAsArrayBuffer':
@@ -559,7 +614,7 @@
         else {
           onDone(undefined, contents);
         }
-      }, onFail);
+      }, onDone);
   }
 
   /**
@@ -577,7 +632,8 @@
       function mkdirSub() {
         if (dirs.length > 0) {
           mkdir(fsRoot, dirs.pop(), onCreateDirSuccess, onCreateDirFailure);
-        } else {
+        }
+        else {
           console.log('mkdir -p OK', path);
           onDone(undefined, path);
         }
@@ -732,6 +788,20 @@
         throw 'Unrecognised zip writer type: '+options.writerType;
     }
     return writer;
+  }
+
+  function defaultProcessEmptyZipEntry(entry, onProcessedEmptyZipEntry) {
+    var replacementContents;
+    var mimeType = zip.getMimeType(entry.filename);
+    switch (mimeType) {
+      case 'text/html':
+      case 'application/xml':
+        replacementContents = '<!-- ' + entry.filename + ' -->';
+        break;
+      default:
+        replacementContents = '// ' + entry.filename + '\n';
+    }
+    onProcessedEmptyZipEntry(undefined, new Blob([replacementContents], mimeType));
   }
 
   /*
