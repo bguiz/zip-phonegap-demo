@@ -14,6 +14,7 @@
     directory: {
       make: mkdirp,
       makeTree: treeMkdir,
+      copy: copyDir,
     },
     file: {
       getEntry: getDataFile,
@@ -629,20 +630,20 @@
   function mkdirp(fsRoot, path, onDone) {
       var dirs = path.split('/').reverse();
 
-      function mkdirSub() {
+      function mkdirSub(dirEntry) {
         if (dirs.length > 0) {
           mkdir(fsRoot, dirs.pop(), onCreateDirSuccess, onCreateDirFailure);
         }
         else {
-          console.log('mkdir -p OK', path);
-          onDone(undefined, path);
+          console.log('mkdir -p OK', path, dirEntry);
+          onDone(undefined, dirEntry);
         }
       }
 
       function onCreateDirSuccess(dirEntry) {
         // console.log('mkdir OK ', dirEntry.fullPath);
         fsRoot = dirEntry;
-        mkdirSub();
+        mkdirSub(dirEntry);
       }
 
       function onCreateDirFailure(err) {
@@ -667,6 +668,107 @@
     fsRoot
       .createFolderAsync(dirPath, global.Windows.Storage.CreationCollisionOption.openIfExists)
       .then(onCreateDirSuccess, onCreateDirFailure);
+  }
+
+  function copyDir(fsRootSource, source, fsRootDest, dest, onDone) {
+    var numFods = 0;
+    var numWritten = 0;
+    var numErrored = 0;
+    var replaceFlag = Windows.Storage.CreationCollisionOption.replaceExisting;
+
+    fsRootSource
+      .getFolderAsync(source)
+      .then(function onGotSourceDir(srcDir) {
+        mkdirp(fsRootDest, dest, function onMkdirpDest(err, dirEntry) {
+          if (!!err) {
+            onDone(err);
+            return;
+          }
+          copyFolders(srcDir);
+        });
+      })
+    .then(undefined, function onErr(err) {
+      console.error('Err:', err);
+    });
+
+    function copyFolders(from) {
+      if (!from) {
+        throw 'Invalid from directory';
+      }
+
+      var checkedFiles = false;
+      var checkedFolders = false;
+      copySubFiles();
+      copySubFolders();
+
+      function copySubFiles() {
+        from
+        .getFilesAsync()
+        .then(function onGotFiles(files) {
+          checkedFiles = true;
+          if (!!files) {
+            numFods += files.length;
+            files.forEach(function onFile(result) {
+              console.log("copy file: " + result.displayName);
+              result
+                .copyAsync(destFolder)
+                .then(function onFileCopied() {
+                  ++numWritten
+                  checkComplete();
+                }, function onFileCopyError(err) {
+                  console.error('Err', err);
+                  ++numErrored;
+                });
+            });
+          }
+        }, function onFileCopyError(err) {
+          console.error('Err', err);
+        });
+      }
+      
+      function copySubFolders() {
+        from
+        .getFoldersAsync()
+        .then(function onGotFolders(folders) {
+          checkedFolders = true;
+          numFods += folders.length;
+          if (folders.length === 0) {
+            checkComplete();
+          }
+          folders.forEach(function onFolder(folder) {
+            console.log('create folder: ' + folder.name);
+            destFolder
+              .createFolderAsync(folder.name, replaceFlag)
+              .then(function onCreatedParallelFolder(newFolder) {
+                ++numWritten;
+                copyFolders(folder, newFolder);
+                checkComplete();
+              }, function onFolderCreateError(err) {
+                console.error('Err', err);
+                ++numErrored;
+              });
+          });
+        }, function onGotFoldersError(err) {
+          console.error('Err', err);
+        });
+      }
+
+      function checkComplete() {
+        if (checkedFiles &&
+          checkedFolders &&
+          numWritten + numErrored >= numFods) {
+          var err;
+          if (numErrored > 0) {
+            err = 'Number of files or directories errored: ' + numErrored;
+          }
+          onDone(err, numWritten);
+        }
+      }
+
+    }
+
+    
+
   }
 
   function constructTreeFromListOfDirectories(dirs) {
