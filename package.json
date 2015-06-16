@@ -4,14 +4,27 @@
   "description": "A phonegap app that demonstrates the use of Javascript zip libraries",
   "private": true,
   "scripts": {
+    "removedeps": "node ./node_modules/rimraf/bin.js www/js/3rd/ www/js/cordova-zip-file-system",
     "installbenchmarkjs": "curl http://cdnjs.cloudflare.com/ajax/libs/benchmark/1.0.0/benchmark.js > www/js/3rd/benchmark.js",
     "installzipjs": "git clone https://github.com/gildas-lormeau/zip.js && mv zip.js/WebContent/ www/js/3rd/zip.js && rm -rf zip.js",
-    "postinstall": "node ./node_modules/rimraf/bin.js www/js/3rd/ ; mkdir www/js/3rd/ && npm run installbenchmarkjs && npm run installzipjs",
+    "installczfs": "ln -s node_modules/cordova-zip-file-system www/js/cordova-zip-file-system",
+    "installdeps": "npm run removedeps && mkdir www/js/3rd/ && npm run installbenchmarkjs && npm run installzipjs && npm rum installczfs",
+    
+    "windowsremovedeps": "node ./node_modules/rimraf/bin.js www/js/3rd/ www/js/cordova-zip-file-system",
+    "windowsinstallbenchmarkjs": "curl http://cdnjs.cloudflare.com/ajax/libs/benchmark/1.0.0/benchmark.js > www\\js\\3rd\\benchmark.js",
+    "windowsinstallzipjs": "git clone https://github.com/gildas-lormeau/zip.js && move zip.js\\WebContent www\\js\\3rd\\zip.js && node ./node_modules/rimraf/bin.js zip.js",
+    "windowsinstallczfs": "mklink /j www\\js\\cordova-zip-file-system node_modules\\cordova-zip-file-system",
+    "windowsinstalldeps": "npm run windowsremovedeps && mkdir www\\js\\3rd && npm run windowsinstallbenchmarkjs && npm run windowsinstallzipjs && npm run windowsinstallczfs",
+    
     "setupandroid": "phonegap platform add android ; phonegap platform update android",
     "setupudevandroid": "sudo cp devops/android.udev.rules /etc/udev/rules.d/51-android.rules && sudo chmod a+r /etc/udev/rules.d/51-android.rules && sudo service udev restart",
     "buildandroid": "phonegap build android",
     "installandroid": "adb install -r platforms/android/build/outputs/apk/android-debug.apk",
     "bumpandroid": "npm run buildandroid && npm run installandroid",
+
+    "setupwindows": "phonegap platform add windows & phonegap platform update windows",
+    "buildwindows": "phonegap build windows",
+
     "setupall": "npm run setupandroid",
     "buildall": "npm run buildandroid",
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -37,5 +50,8 @@
   "homepage": "https://github.com/bguiz/zip-phonegap-demo",
   "devDependencies": {
     "rimraf": "^2.3.4"
+  },
+  "dependencies": {
+    "cordova-zip-file-system": "0.0.1"
   }
 }
