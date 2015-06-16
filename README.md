@@ -19,7 +19,11 @@ To set up the project, run the following commands:
 ```bash
 git clone git@github.com:bguiz/zip-phonegap-demo.git
 cd zip-phonegap-demo
-npm install
+npm run install
+# For *nix systems
+npm installdeps
+# OR, for Windows systems
+npm run windowsinstalldeps
 ```
 
 Note that the `npm` command is used here as a *convenience* to install
@@ -42,9 +46,20 @@ npm run buildandroid
 // Find APK in ./platforms/android/build/outputs/apk/*.apk
 ```
 
-### TODO: other build targets
+### phonegap-windows build
 
-Coming soon, to a git repo near you!
+To build the Windows and Windows Phone targets:
+
+- Install Microsoft Visual Studio 2015
+- Run the following commands:
+
+```bash
+npm run setupwindows
+npm run buildwindows
+// Find MSVS solution in platforms\windows\CordovaApp.sln
+```
+
+Open the MSVS solution in Visual Studio, and take it from there.
 
 ## Contributing
 
