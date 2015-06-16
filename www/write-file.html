@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html>
     <head>
         <meta charset="UTF-8" />
@@ -34,6 +34,15 @@
 
         <!-- benchmark.js -->
         <script type="application/javascript" src="js/3rd/benchmark.js"></script>
+
+        <!-- zip.js -->
+        <script type="application/javascript" src="js/3rd/zip.js/zip.js"></script>
+        <script type="application/javascript" src="js/3rd/zip.js/z-worker.js"></script>
+        <script type="application/javascript" src="js/3rd/zip.js/inflate.js"></script>
+        <script type="application/javascript" src="js/3rd/zip.js/deflate.js"></script>
+        <script type="application/javascript" src="js/3rd/zip.js/zip-fs.js"></script>
+        <script type="application/javascript" src="js/3rd/zip.js/zip-ext.js"></script>
+        <script type="application/javascript" src="js/3rd/zip.js/mime-types.js"></script>
 
         <!-- internal -->
         <script type="application/javascript" src="js/util.js"></script>
@@ -104,17 +113,18 @@
                 exclusive: false,
               },
               method: 'readAsText',
-            }, function onReadFileDone(err, evt) {
+            }, function onReadFileDone(err, contents) {
               if (!!err) {
                 onFail(err);
               }
-              var length = evt.target.result.length;
+              var length = contents.length;
               console.log('File length', length);
               deferred.resolve();
             });
           }
 
           function onDeviceReady() {
+            CordovaZipFileSystem.platform.initialise();
             var elem = document.getElementById('runbutton');
             elem.addEventListener('click', function() {
               run();

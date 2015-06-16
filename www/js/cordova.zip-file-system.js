@@ -9,33 +9,33 @@
 
   var CordovaZipFileSystem = {
     platform: {
-      initialise: initPlatformSpecificFunctions,
+      initialise: platform_initialise,
     },
     directory: {
-      make: mkdirp,
-      makeTree: treeMkdir,
-      copy: copyDir,
+      makeRecursive: directory_makeRecursive,
+      makeTree: directory_makeTree,
+      copyRecursive: directory_copyRecursive,
     },
     file: {
-      getEntry: getDataFile,
-      read: readFile,
-      write: writeFile,
+      getEntry: file_getEntry,
+      read: file_read,
+      write: file_write,
     },
     zip: {
-      getReader: getZipReader,
-      getWriter: getZipWriter,
-      extractToFolder: extractZipToFolder,
-      downloadAndExtractToFolder: downloadAndExtractZipToFolder,
-      inflateEntries: zipInflateEntries,
-      inflate: extractZip,
+      getReader: zip_getReader,
+      getWriter: zip_getWriter,
+      extract: zip_extract,
+      downloadAndExtract: zip_downloadAndExtract,
+      inflateEntries: zip_inflateEntries,
+      inflate: zip_inflate,
     },
   };
 
   global.CordovaZipFileSystem = CordovaZipFileSystem;
 
-  function downloadAndExtractZipToFolder(options, onDone) {
-    console.log('downloadAndExtractZip', options);
-    // Ultimately calls `extractZipToFolder()`
+  function zip_downloadAndExtract(options, onDone) {
+    console.log('zip_downloadAndExtract', options);
+    // Ultimately calls `zip_extract()`
 
     if (options.readerUrl) {
       if (!!options.cdnStyle) {
@@ -71,13 +71,13 @@
       }
     }
     else {
-      console.log('downloadAndExtractZipToFolder called without options.readerUrl');
-      extractZipToFolder(options, onDone);
+      console.log('zip_downloadAndExtract called without options.readerUrl');
+      zip_extract(options, onDone);
     }
   }
 
   function attemptToGetFileFromCache(options, onDone) {
-    readFile({
+    file_read({
       name: options.downloadFilePath,
       flags: {
         create: false,
@@ -95,7 +95,7 @@
         options.readerBlob = blob;
         options.readerType = 'BlobReader';
         options.readerUrl = undefined;
-        extractZipToFolder(options, onDone);
+        zip_extract(options, onDone);
       }
     });
   }
@@ -112,7 +112,7 @@
       options.readerType = 'BlobReader';
       options.readerUrl = undefined;
       options.readerBlob = blob;
-      extractZipToFolder(options, completeBlob);
+      zip_extract(options, completeBlob);
 
       function completeBlob(err, data) {
         if (!!err) {
@@ -121,7 +121,7 @@
         }
         if (options.downloadFolder) {
           // After file has been extracted, persist the original file back to disk
-          writeFile({
+          file_write({
             name: options.downloadFilePath,
             blob: blob,
             flags: {
@@ -140,7 +140,7 @@
 
   /**
    * Opens a Zip file, and inflates all of its contents to a folder on the filesystem
-   * Combines `extractZip` and `writeFile` functionality,
+   * Combines `zip_inflate` and `file_write` functionality,
    * adding a management layer.
    *
    * @param  {Object} options
@@ -152,7 +152,7 @@
    *   }
    * @param  {Function} onDone  [description]
    */
-  function extractZipToFolder(options, onDone) {
+  function zip_extract(options, onDone) {
     var numFiles = 0;
     var numFilesWritten = 0;
     var numFilesErrored = 0;
@@ -176,7 +176,7 @@
       processEmptyZipEntry: options.processEmptyZipEntry,
     };
 
-    extractZip(zipOptions, function onExtractZipDone(err, allDone, fileInfo) {
+    zip_inflate(zipOptions, function onExtractZipDone(err, allDone, fileInfo) {
       if (!!err) {
         onDone(err);
         return;
@@ -196,7 +196,7 @@
         };
 
         ++numFiles;
-        writeFile(fileOptions, function onWriteFileDone(err, fileEntry, evt) {
+        file_write(fileOptions, function onWriteFileDone(err, fileEntry, evt) {
           if (!!err) {
             ++numFilesErrored;
             onDone(err);
@@ -280,7 +280,7 @@
    * @param  {Array<zip.Entry>} entries   [description]
    * @param  {Function} onInflate [description]
    */
-  function zipInflateEntries(options, entries, onInflate) {
+  function zip_inflateEntries(options, entries, onInflate) {
     console.log(options.name, 'entries.length:', entries.length);
     var resultCount = entries.length;
     var concurrentEntries = 0;
@@ -322,10 +322,12 @@
       ++concurrentEntries;
       concurrentCost += estimatedSizeCost;
 
-      var writer = getZipWriter(options, entry);
+      var writer = zip_getWriter(options, entry);
       entry.getData(writer, function onGotDataForZipEntry(data) {
-        if (data.size !== entry.uncompressedSize) {
-          throw 'Inflated data is not the right size';
+        if ((options.writerType === 'BlobWriter' && data.size !== entry.uncompressedSize) ||
+            (options.writerType === 'Data64URIWriter' && data.length < entry.uncompressedSize)) {
+          onInflate('Inflated data is not the right size');
+          return;
         }
         onInflate(undefined, false, {
           fileEntry: entry,
@@ -371,11 +373,11 @@
    * @param  {Object} options [description]
    * @param  {Function} onDone  [description]
    */
-  function extractZip(options, onDone) {
+  function zip_inflate(options, onDone) {
     zip.useWebWorkers = options.useWebWorkers;
     zip.workerScripts = options.workerScripts;
 
-    var reader = getZipReader(options);
+    var reader = zip_getReader(options);
 
     zip.createReader(reader, function onZipReaderCreated(zipReader) {
       zipReader.getEntries(function onZipEntriesListed(entries) {
@@ -388,14 +390,14 @@
           var dirs = entries.map(function dirOfFile(entry) {
             return options.extractFolder+'/'+entry.filename.replace( /\/[^\/]+$/ , '');
           });
-          treeMkdir(dirs, function onCompleteRootTree(errors) {
+          directory_makeTree(dirs, function onCompleteRootTree(errors) {
             // console.log('mkdir tree completed', 'completed', completedSubTrees, '/', totalSubTrees, 'errors:', errors);
             console.log('mkdir tree completed', 'errors:', errors);
-            zipInflateEntries(options, entries, onDone);
+            zip_inflateEntries(options, entries, onDone);
           });
         }
         else {
-          zipInflateEntries(options, entries, onDone);
+          zip_inflateEntries(options, entries, onDone);
         }
       });
     }, onDone);
@@ -422,13 +424,13 @@
     onGotFileSystem(global.Windows.Storage.ApplicationData.current.localFolder);
   }
 
-  function getDataFile(path, options, onGotFileEntry) {
+  function file_getEntry(path, options, onGotFileEntry) {
     options = options || {};
     getFileSystemRoot(function onGotFileSytemRoot(fsRoot) {
       // console.log('fileSys:', fileSys);
       if (!!options.mkdirp) {
         var dirPath = path.replace( /\/[^\/]+$/ , '');
-        mkdirp(fsRoot, dirPath, function onMkdirpDone(err, dirEntry) {
+        directory_makeRecursive(fsRoot, dirPath, function onMkdirpDone(err, dirEntry) {
           if (!!err) {
             onFail(err);
           }
@@ -484,12 +486,12 @@
     }
   }
 
-  function writeFile(options, onDone) {
+  function file_write(options, onDone) {
     var blob;
     if (options.blob) {
       blob = options.blob;
     }
-    else if (options.content && options.mimeType) {
+    else if (options.contents && options.mimeType) {
       blob = new global.Blob([options.contents], { type: options.mimeType });
     }
     else {
@@ -499,7 +501,7 @@
       onDone('Cannot create file: Trying to write an empty blob');
     }
 
-    getDataFile(options.name, options.flags, function onGotFileEntry(err, fileEntry) {
+    file_getEntry(options.name, options.flags, function onGotFileEntry(err, fileEntry) {
       if (!!err) {
         onFail(err);
       }
@@ -547,8 +549,8 @@
   }
 
 
-  function readFile(options, onDone) {
-    getDataFile(options.name, options.flags, function onGotFileEntry(err, fileEntry) {
+  function file_read(options, onDone) {
+    file_getEntry(options.name, options.flags, function onGotFileEntry(err, fileEntry) {
       if (!!err) {
           onDone(err);
           return;
@@ -627,7 +629,7 @@
    * @param  {String} path      The path of the directory, relative to file system root
    * @param  {Function} onDone  Callback
    */
-  function mkdirp(fsRoot, path, onDone) {
+  function directory_makeRecursive(fsRoot, path, onDone) {
       var dirs = path.split('/').reverse();
 
       function mkdirSub(dirEntry) {
@@ -670,7 +672,7 @@
       .then(onCreateDirSuccess, onCreateDirFailure);
   }
 
-  function copyDir(fsRootSource, source, fsRootDest, dest, onDone) {
+  function directory_copyRecursive(fsRootSource, source, fsRootDest, dest, onDone) {
     var numFods = 0;
     var numWritten = 0;
     var numErrored = 0;
@@ -679,7 +681,7 @@
     fsRootSource
       .getFolderAsync(source)
       .then(function onGotSourceDir(srcDir) {
-        mkdirp(fsRootDest, dest, function onMkdirpDest(err, dirEntry) {
+        directory_makeRecursive(fsRootDest, dest, function onMkdirpDest(err, dirEntry) {
           if (!!err) {
             onDone(err);
             return;
@@ -725,7 +727,7 @@
           console.error('Err', err);
         });
       }
-      
+
       function copySubFolders() {
         from
         .getFoldersAsync()
@@ -767,8 +769,6 @@
 
     }
 
-    
-
   }
 
   function constructTreeFromListOfDirectories(dirs) {
@@ -794,7 +794,7 @@
    * @param  {Array<String>}  dirs               A list of directories that need to be constructed
    * @param  {Function}       onCompleteRootTree Gets called once complete, the first parameter will be an array of errors
    */
-  function treeMkdir(dirs, onCompleteRootTree) {
+  function directory_makeTree(dirs, onCompleteRootTree) {
     var tree = constructTreeFromListOfDirectories(dirs);
 
     getFileSystemRoot(onGotFileSytem);
@@ -847,7 +847,7 @@
     }
   }
 
-  function getZipReader(options) {
+  function zip_getReader(options) {
     var reader;
     switch (options.readerType) {
       case 'TextReader':
@@ -871,7 +871,7 @@
     return reader;
   }
 
-  function getZipWriter(options, zipEntry) {
+  function zip_getWriter(options, zipEntry) {
     var writer;
     switch (options.writerType) {
       case 'TextWriter':
@@ -915,7 +915,7 @@
   //NOTE this is the closest we get to #IFDEF style conditional compilation
   var urlOfFileEntry, getFileSystemRoot, getFile, writeBlobToFile, readFileImpl, mkdir;
 
-  function initPlatformSpecificFunctions() {
+  function platform_initialise() {
     if (!!global.device &&
         typeof global.device.platform === 'string' &&
         global.device.platform.toLowerCase() === 'windows') {

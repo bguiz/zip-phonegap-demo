@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html>
     <head>
         <meta charset="UTF-8" />
@@ -100,7 +100,7 @@
               downloadFolder: 'zipped',
               downloadCachedUntil: cache_refresh_date,
             };
-            window.CordovaZipFileSystem.zip.downloadAndExtractToFolder(options, function onExtractZipToFolderDone(err, numFiles) {
+            window.CordovaZipFileSystem.zip.downloadAndExtract(options, function onExtractZipToFolderDone(err, numFiles) {
               if (!!err) {
                 onFail(err);
               }
