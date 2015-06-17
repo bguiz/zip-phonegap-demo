@@ -8,14 +8,14 @@
     "installbenchmarkjs": "curl http://cdnjs.cloudflare.com/ajax/libs/benchmark/1.0.0/benchmark.js > www/js/3rd/benchmark.js",
     "installzipjs": "git clone https://github.com/gildas-lormeau/zip.js && mv zip.js/WebContent/ www/js/3rd/zip.js && rm -rf zip.js",
     "installczfs": "ln -s node_modules/cordova-zip-file-system www/js/cordova-zip-file-system",
-    "installdeps": "npm run removedeps && mkdir www/js/3rd/ && npm run installbenchmarkjs && npm run installzipjs && npm rum installczfs",
-    
+    "installdeps": "npm run removedeps && mkdir www/js/3rd/ && npm run installbenchmarkjs && npm run installzipjs && npm run installczfs",
+
     "windowsremovedeps": "node ./node_modules/rimraf/bin.js www/js/3rd/ www/js/cordova-zip-file-system",
     "windowsinstallbenchmarkjs": "curl http://cdnjs.cloudflare.com/ajax/libs/benchmark/1.0.0/benchmark.js > www\\js\\3rd\\benchmark.js",
     "windowsinstallzipjs": "git clone https://github.com/gildas-lormeau/zip.js && move zip.js\\WebContent www\\js\\3rd\\zip.js && node ./node_modules/rimraf/bin.js zip.js",
     "windowsinstallczfs": "mklink /j www\\js\\cordova-zip-file-system node_modules\\cordova-zip-file-system",
     "windowsinstalldeps": "npm run windowsremovedeps && mkdir www\\js\\3rd && npm run windowsinstallbenchmarkjs && npm run windowsinstallzipjs && npm run windowsinstallczfs",
-    
+
     "setupandroid": "phonegap platform add android ; phonegap platform update android",
     "setupudevandroid": "sudo cp devops/android.udev.rules /etc/udev/rules.d/51-android.rules && sudo chmod a+r /etc/udev/rules.d/51-android.rules && sudo service udev restart",
     "buildandroid": "phonegap build android",
